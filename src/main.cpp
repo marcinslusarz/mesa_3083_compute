@@ -1,6 +1,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <dlfcn.h>
 #include <vector>
 #include <string.h>
 #include <assert.h>
@@ -8,6 +9,7 @@
 #include <cmath>
 
 #include "lodepng.h" //Used for png encoding.
+#include "renderdoc.h"
 
 const int WIDTH = 3200; // Size of rendered mandelbrot set.
 const int HEIGHT = 2400; // Size of renderered mandelbrot set.
@@ -122,6 +124,15 @@ private:
 
 public:
     void run() {
+        RENDERDOC_API_1_4_1 *rdoc_api = NULL;
+
+        void *mod = dlopen("librenderdoc.so", RTLD_NOW | RTLD_NOLOAD);
+        if (mod) {
+            pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)dlsym(mod, "RENDERDOC_GetAPI");
+            int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_4_1, (void **)&rdoc_api);
+            assert(ret == 1);
+        }
+
         // Buffer size of the storage buffer that will contain the rendered mandelbrot set.
         bufferSize = sizeof(Pixel) * WIDTH * HEIGHT;
 
@@ -129,6 +140,8 @@ public:
         createInstance();
         findPhysicalDevice();
         createDevice();
+        if (rdoc_api)
+            rdoc_api->StartFrameCapture(NULL, NULL);
         createBuffer();
         createDescriptorSetLayout();
         createDescriptorSet();
@@ -141,6 +154,8 @@ public:
         // The former command rendered a mandelbrot set to a buffer.
         // Save that buffer as a png on disk.
         saveRenderedImage();
+        if (rdoc_api)
+            rdoc_api->EndFrameCapture(NULL, NULL);
 
         // Clean up all vulkan resources.
         cleanup();

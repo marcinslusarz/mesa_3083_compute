@@ -16,4 +16,4 @@ add_executable(vulkan_minimal_compute src/main.cpp src/lodepng.cpp)
 
 set_target_properties(vulkan_minimal_compute PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-target_link_libraries(vulkan_minimal_compute ${ALL_LIBS} )
+target_link_libraries(vulkan_minimal_compute ${ALL_LIBS} ${CMAKE_DL_LIBS})

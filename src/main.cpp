@@ -11,9 +11,11 @@
 #include "lodepng.h" //Used for png encoding.
 #include "renderdoc.h"
 
-const int WIDTH = 3200; // Size of rendered mandelbrot set.
-const int HEIGHT = 2400; // Size of renderered mandelbrot set.
-const int WORKGROUP_SIZE = 1; // Workgroup size in compute shader.
+const int WIDTH = 3200/64; // Size of rendered mandelbrot set.
+const int HEIGHT = 2400/64; // Size of renderered mandelbrot set.
+
+const int WORKGROUP_SIZE_X = 32; // Workgroup X size in compute shader.
+const int WORKGROUP_SIZE_Y = 32; // Workgroup Y size in compute shader.
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -725,7 +727,7 @@ public:
         The number of workgroups is specified in the arguments.
         If you are already familiar with compute shaders from OpenGL, this should be nothing new to you.
         */
-        vkCmdDispatch(commandBuffer, (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE)), (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE)), 1);
+        vkCmdDispatch(commandBuffer, (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE_X)), (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE_Y)), 1);
 
         VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer)); // end recording commands.
     }

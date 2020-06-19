@@ -14,8 +14,8 @@
 const int WIDTH = 3200/64; // Size of rendered mandelbrot set.
 const int HEIGHT = 2400/64; // Size of renderered mandelbrot set.
 
-const int WORKGROUP_SIZE_X = 32; // Workgroup X size in compute shader.
-const int WORKGROUP_SIZE_Y = 32; // Workgroup Y size in compute shader.
+static int WORKGROUP_SIZE_X = 32; // Workgroup X size in compute shader.
+static int WORKGROUP_SIZE_Y = 32; // Workgroup Y size in compute shader.
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -143,6 +143,13 @@ public:
     void run() {
         perf.enabled = getenv("PERF_ENABLED") == NULL;
         perf.show_csv = getenv("CSV") != NULL;
+        const char *tmp = getenv("GROUP_X");
+        if (tmp)
+            WORKGROUP_SIZE_X = atoi(tmp);
+        tmp = getenv("GROUP_Y");
+        if (tmp)
+            WORKGROUP_SIZE_Y = atoi(tmp);
+
         if (perf.enabled && perf.show_csv)
             printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,thread_occupancy_pct:int\n");
 

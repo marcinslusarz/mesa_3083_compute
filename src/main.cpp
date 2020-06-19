@@ -136,11 +136,16 @@ private:
         unsigned EUThreadOccupaccyIdx;
         unsigned GPUTimeElapsedIdx;
         unsigned CSThreadsDispatchedIdx;
+        bool show_csv;
     } perf;
 
 public:
     void run() {
         perf.enabled = getenv("PERF_ENABLED") == NULL;
+        perf.show_csv = getenv("CSV") != NULL;
+        if (perf.enabled && perf.show_csv)
+            printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,thread_occupancy_pct:int\n");
+
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
 
         void *mod = dlopen("librenderdoc.so", RTLD_NOW | RTLD_NOLOAD);
@@ -243,18 +248,29 @@ public:
                     i++;
                 }
             }
-            printf("EU Thread Occupancy:   %f\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
-            printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-            printf("GPU Time Elapsed:      %lu\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
 
             std::vector<uint64_t> recordedCountersPipeline(1);
-
             VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolPipeline, 0, 1,
                     sizeof(uint64_t) * 1,
                     recordedCountersPipeline.data(),
                     sizeof(uint64_t),
                     0));
-            printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
+
+            if (perf.show_csv) {
+                printf("%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 1);
+                printf("%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
+                printf("%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                printf("%lu,", recordedCountersPipeline[0]);
+                printf("%d\n", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
+            } else {
+                printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
+                printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                if (0)
+                    printf("GPU Time Elapsed:      %lu ns\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
+                printf("GPU Time Elapsed:      %f ms\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0);
+                printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
+            }
+
         } else {
             runCommandBuffer(&commandBuffers[1], NULL);
         }

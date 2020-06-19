@@ -226,7 +226,7 @@ public:
             bool foundLayer = false;
             for (VkLayerProperties prop : layerProperties) {
                 
-                if (strcmp("VK_LAYER_LUNARG_standard_validation", prop.layerName) == 0) {
+                if (strcmp("VK_LAYER_KHRONOS_validation", prop.layerName) == 0) {
                     foundLayer = true;
                     break;
                 }
@@ -234,9 +234,9 @@ public:
             }
             
             if (!foundLayer) {
-                throw std::runtime_error("Layer VK_LAYER_LUNARG_standard_validation not supported\n");
+                throw std::runtime_error("Layer VK_LAYER_KHRONOS_validation not supported\n");
             }
-            enabledLayers.push_back("VK_LAYER_LUNARG_standard_validation"); // Alright, we can use this layer.
+            enabledLayers.push_back("VK_LAYER_KHRONOS_validation"); // Alright, we can use this layer.
 
             /*
             We need to enable an extension named VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
@@ -264,7 +264,7 @@ public:
                 throw std::runtime_error("Extension VK_EXT_DEBUG_REPORT_EXTENSION_NAME not supported\n");
             }
             enabledExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-        }		
+        }
 
         /*
         Next, we actually create the instance.

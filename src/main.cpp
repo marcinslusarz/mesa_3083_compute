@@ -78,7 +78,7 @@ private:
     To allocate such command buffers, we use a command pool.
     */
     VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
+    VkCommandBuffer commandBuffers[2];
 
     /*
 
@@ -124,8 +124,23 @@ private:
     */
     uint32_t queueFamilyIndex;
 
+    struct {
+        bool enabled;
+        std::vector<VkPerformanceCounterStorageKHR> storages;
+        std::vector<uint32_t> selectedCounters;
+        VkQueryPoolPerformanceCreateInfoKHR performanceQueryCreateInfo;
+        uint32_t numPasses;
+        VkQueryPool queryPoolKHR;
+        VkQueryPool queryPoolPipeline;
+
+        unsigned EUThreadOccupaccyIdx;
+        unsigned GPUTimeElapsedIdx;
+        unsigned CSThreadsDispatchedIdx;
+    } perf;
+
 public:
     void run() {
+        perf.enabled = getenv("PERF_ENABLED") == NULL;
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
 
         void *mod = dlopen("librenderdoc.so", RTLD_NOW | RTLD_NOLOAD);
@@ -141,17 +156,108 @@ public:
         // Initialize vulkan:
         createInstance();
         findPhysicalDevice();
+        if (perf.enabled)
+            selectPerfCounters();
         createDevice();
+        if (perf.enabled)
+            createQueries();
         if (rdoc_api)
             rdoc_api->StartFrameCapture(NULL, NULL);
         createBuffer();
         createDescriptorSetLayout();
         createDescriptorSet();
         createComputePipeline();
+
+        if (perf.enabled) {
+            VkAcquireProfilingLockInfoKHR lockInfo;
+            lockInfo.sType = VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR;
+            lockInfo.pNext = NULL;
+            lockInfo.flags  = 0;
+            lockInfo.timeout = UINT64_MAX;
+
+            PFN_vkAcquireProfilingLockKHR vkAcquireProfilingLockKHR =
+                        (PFN_vkAcquireProfilingLockKHR)
+                        vkGetInstanceProcAddr(instance, "vkAcquireProfilingLockKHR");
+            assert(vkAcquireProfilingLockKHR != NULL);
+
+            VK_CHECK_RESULT(vkAcquireProfilingLockKHR(device, &lockInfo));
+        }
+
+        createCommandPool();
+        allocateCommandBuffers();
+        if (perf.enabled)
+            createResetCommandBuffer();
         createCommandBuffer();
 
-        // Finally, run the recorded command buffer.
-        runCommandBuffer();
+        if (perf.enabled) {
+            // Finally, run the recorded command buffer.
+            for (uint32_t counterPass = 0; counterPass < perf.numPasses; counterPass++) {
+              VkPerformanceQuerySubmitInfoKHR performanceQuerySubmitInfo;
+              performanceQuerySubmitInfo.sType = VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR;
+              performanceQuerySubmitInfo.pNext = NULL;
+              performanceQuerySubmitInfo.counterPassIndex = counterPass;
+
+              runCommandBuffer(&commandBuffers[0], NULL);
+              runCommandBuffer(&commandBuffers[1], &performanceQuerySubmitInfo);
+            }
+
+            PFN_vkReleaseProfilingLockKHR vkReleaseProfilingLockKHR =
+                        (PFN_vkReleaseProfilingLockKHR)
+                        vkGetInstanceProcAddr(instance, "vkReleaseProfilingLockKHR");
+            assert(vkReleaseProfilingLockKHR != NULL);
+
+            vkReleaseProfilingLockKHR(device);
+
+            size_t cntrs = perf.selectedCounters.size();
+            std::vector<VkPerformanceCounterResultKHR> recordedCounters(cntrs);
+
+            VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolKHR, 0, 1,
+                    sizeof(VkPerformanceCounterResultKHR) * cntrs,
+                    recordedCounters.data(),
+                    sizeof(VkPerformanceCounterResultKHR),
+                    0));
+            if (0) {
+                int i = 0;
+                for (auto c : recordedCounters) {
+                    printf("counter: %d, value: ", i);
+                    switch(perf.storages[i]) {
+                    case VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR:
+                        printf("%d\n", c.int32);
+                        break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR:
+                        printf("%u\n", c.uint32);
+                        break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR:
+                        printf("%ld\n", c.int64);
+                        break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR:
+                        printf("%lu\n", c.uint64);
+                        break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR:
+                        printf("%f\n", c.float32);
+                        break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:
+                        printf("%g\n", c.float64);
+                        break;
+                    }
+                    i++;
+                }
+            }
+            printf("EU Thread Occupancy:   %f\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
+            printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+            printf("GPU Time Elapsed:      %lu\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
+
+            std::vector<uint64_t> recordedCountersPipeline(1);
+
+            VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolPipeline, 0, 1,
+                    sizeof(uint64_t) * 1,
+                    recordedCountersPipeline.data(),
+                    sizeof(uint64_t),
+                    0));
+            printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
+        } else {
+            runCommandBuffer(&commandBuffers[1], NULL);
+        }
 
         // The former command rendered a mandelbrot set to a buffer.
         // Save that buffer as a png on disk.
@@ -266,6 +372,9 @@ public:
             enabledExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
         }
 
+        if (perf.enabled)
+            enabledExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+
         /*
         Next, we actually create the instance.
         
@@ -372,6 +481,91 @@ public:
         }
     }
 
+    void selectPerfCounters() {
+        PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR
+                vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR =
+                    (PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR)
+                    vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR");
+        assert(vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR != NULL);
+
+        uint32_t counterCount;
+
+        // Get the count of counters supported
+        VK_CHECK_RESULT(vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR(
+          physicalDevice,
+          queueFamilyIndex,
+          &counterCount,
+          NULL,
+          NULL));
+
+        std::vector<VkPerformanceCounterKHR> counters(counterCount);
+        std::vector<VkPerformanceCounterDescriptionKHR> counterDescriptions(counterCount);
+
+        for (auto &c : counters) {
+            c.sType = VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR;
+            c.pNext = nullptr;
+        }
+
+        for (auto &c : counterDescriptions) {
+            c.sType = VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR;
+            c.pNext = nullptr;
+        }
+
+        // Get the counters supported
+        VK_CHECK_RESULT(vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR(
+          physicalDevice,
+          queueFamilyIndex,
+          &counterCount,
+          counters.data(),
+          counterDescriptions.data()));
+
+        unsigned idx = 0;
+        for (uint32_t i = 0; i < counterDescriptions.size(); ++i) {
+            const auto &c = counterDescriptions[i];
+            if (strcmp(c.name, "EU Thread Occupancy") == 0) {
+                perf.EUThreadOccupaccyIdx = idx;
+                assert(counters[i].storage == VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR);
+            } else if (strcmp(c.name, "CS Threads Dispatched") == 0) {
+                perf.CSThreadsDispatchedIdx = idx;
+                assert(counters[i].storage == VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR);
+            } else if (strcmp(c.name, "GPU Time Elapsed") == 0) {
+                perf.GPUTimeElapsedIdx = idx;
+                assert(counters[i].storage == VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR);
+            }
+
+            if (strcmp(c.name, "EU Thread Occupancy") == 0 ||
+                    strcmp(c.name, "CS Threads Dispatched") == 0 ||
+                    strcmp(c.name, "GPU Time Elapsed") == 0) {
+                if (0)
+                    printf("found counter %u %s, type: %d\n", i, c.name, counters[i].storage);
+                perf.selectedCounters.push_back(i);
+                perf.storages.push_back(counters[i].storage);
+                idx++;
+            }
+        }
+        assert(perf.selectedCounters.size() == 3);
+
+        perf.performanceQueryCreateInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR;
+        perf.performanceQueryCreateInfo.pNext = NULL;
+        perf.performanceQueryCreateInfo.queueFamilyIndex = queueFamilyIndex;
+        perf.performanceQueryCreateInfo.counterIndexCount = (uint32_t)perf.selectedCounters.size();
+        perf.performanceQueryCreateInfo.pCounterIndices = perf.selectedCounters.data();
+
+        PFN_vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR
+        vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR =
+                    (PFN_vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR)
+                    vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR");
+        assert(vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR != NULL);
+
+        vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR(
+          physicalDevice,
+          &perf.performanceQueryCreateInfo,
+          &perf.numPasses);
+        if (0)
+            printf("numPasses: %u\n", perf.numPasses);
+    }
+
+
     // Returns the index of a queue family that supports compute operations. 
     uint32_t getComputeQueueFamilyIndex() {
         uint32_t queueFamilyCount;
@@ -401,6 +595,17 @@ public:
     }
 
     void createDevice() {
+        if (0) {
+            uint32_t extensionCount;
+            vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, NULL);
+            std::vector<VkExtensionProperties> extensionProperties(extensionCount);
+            vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, extensionProperties.data());
+
+            bool foundExtension = false;
+            for (VkExtensionProperties prop : extensionProperties)
+                printf("phys dev ext name: %s\n", prop.extensionName);
+        }
+
         /*
         We create the logical device in this function.
         */
@@ -424,6 +629,8 @@ public:
 
         // Specify any desired device features here. We do not need any for this application, though.
         VkPhysicalDeviceFeatures deviceFeatures = {};
+        if (perf.enabled)
+            deviceFeatures.pipelineStatisticsQuery = VK_TRUE;
 
         deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         deviceCreateInfo.enabledLayerCount = enabledLayers.size();  // need to specify validation layers here as well.
@@ -432,10 +639,50 @@ public:
         deviceCreateInfo.queueCreateInfoCount = 1;
         deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
+        if (perf.enabled) {
+            const char *ext_names[] = { VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME };
+            deviceCreateInfo.ppEnabledExtensionNames = ext_names;
+            deviceCreateInfo.enabledExtensionCount = 1;
+
+            VkPhysicalDevicePerformanceQueryFeaturesKHR perfFeatures = {
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR,
+            };
+
+            perfFeatures.performanceCounterQueryPools = VK_TRUE;
+            perfFeatures.performanceCounterMultipleQueryPools = VK_FALSE;
+
+            perfFeatures.pNext = NULL;
+            deviceCreateInfo.pNext = &perfFeatures;
+        }
+
         VK_CHECK_RESULT(vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device)); // create logical device.
 
         // Get a handle to the only member of the queue family.
         vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
+    }
+
+    void createQueries() {
+        VkQueryPoolCreateInfo queryPoolCreateInfo;
+        queryPoolCreateInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        queryPoolCreateInfo.pNext = &perf.performanceQueryCreateInfo;
+        queryPoolCreateInfo.flags = 0;
+        queryPoolCreateInfo.queryType = VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR;
+        queryPoolCreateInfo.queryCount = 1;
+
+        VK_CHECK_RESULT(vkCreateQueryPool(
+          device,
+          &queryPoolCreateInfo,
+          NULL,
+          &perf.queryPoolKHR));
+
+        queryPoolCreateInfo.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+        queryPoolCreateInfo.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
+
+        VK_CHECK_RESULT(vkCreateQueryPool(
+          device,
+          &queryPoolCreateInfo,
+          NULL,
+          &perf.queryPoolPipeline));
     }
 
     // find memory type with desired properties.
@@ -679,7 +926,7 @@ public:
             NULL, &pipeline));
     }
 
-    void createCommandBuffer() {
+    void createCommandPool() {
         /*
         We are getting closer to the end. In order to send commands to the device(GPU),
         we must first record commands into a command buffer.
@@ -689,22 +936,42 @@ public:
         commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         commandPoolCreateInfo.flags = 0;
         // the queue family of this command pool. All command buffers allocated from this command pool,
-        // must be submitted to queues of this family ONLY. 
+        // must be submitted to queues of this family ONLY.
         commandPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
         VK_CHECK_RESULT(vkCreateCommandPool(device, &commandPoolCreateInfo, NULL, &commandPool));
+    }
 
+    void allocateCommandBuffers() {
         /*
-        Now allocate a command buffer from the command pool. 
+        Now allocate a command buffer from the command pool.
         */
         VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
         commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        commandBufferAllocateInfo.commandPool = commandPool; // specify the command pool to allocate from. 
-        // if the command buffer is primary, it can be directly submitted to queues. 
-        // A secondary buffer has to be called from some primary command buffer, and cannot be directly 
-        // submitted to a queue. To keep things simple, we use a primary command buffer. 
+        commandBufferAllocateInfo.commandPool = commandPool; // specify the command pool to allocate from.
+        // if the command buffer is primary, it can be directly submitted to queues.
+        // A secondary buffer has to be called from some primary command buffer, and cannot be directly
+        // submitted to a queue. To keep things simple, we use a primary command buffer.
         commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        commandBufferAllocateInfo.commandBufferCount = 1; // allocate a single command buffer. 
-        VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &commandBuffer)); // allocate command buffer.
+        commandBufferAllocateInfo.commandBufferCount = 2; // allocate 2 command buffers.
+        VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, commandBuffers)); // allocate command buffer.
+    }
+
+    void createResetCommandBuffer() {
+        /*
+        Now we shall start recording commands into the newly allocated command buffer.
+        */
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
+        VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffers[0], &beginInfo)); // start recording commands.
+
+        vkCmdResetQueryPool(commandBuffers[0], perf.queryPoolKHR, 0, 1);
+        vkCmdResetQueryPool(commandBuffers[0], perf.queryPoolPipeline, 0, 1);
+
+        VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffers[0])); // end recording commands.
+    }
+
+    void createCommandBuffer() {
 
         /*
         Now we shall start recording commands into the newly allocated command buffer. 
@@ -712,35 +979,54 @@ public:
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
-        VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffer, &beginInfo)); // start recording commands.
+        VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffers[1], &beginInfo)); // start recording commands.
+
+        if (perf.enabled) {
+            vkCmdBeginQuery(commandBuffers[1], perf.queryPoolKHR, 0, 0);
+            vkCmdBeginQuery(commandBuffers[1], perf.queryPoolPipeline, 0, 0);
+        }
 
         /*
         We need to bind a pipeline, AND a descriptor set before we dispatch.
 
         The validation layer will NOT give warnings if you forget these, so be very careful not to forget them.
         */
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
+        vkCmdBindPipeline(commandBuffers[1], VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        vkCmdBindDescriptorSets(commandBuffers[1], VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
 
         /*
         Calling vkCmdDispatch basically starts the compute pipeline, and executes the compute shader.
         The number of workgroups is specified in the arguments.
         If you are already familiar with compute shaders from OpenGL, this should be nothing new to you.
         */
-        vkCmdDispatch(commandBuffer, (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE_X)), (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE_Y)), 1);
+        vkCmdDispatch(commandBuffers[1], (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE_X)), (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE_Y)), 1);
 
-        VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer)); // end recording commands.
+        if (perf.enabled) {
+            vkCmdPipelineBarrier(commandBuffers[1],
+              VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+              VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+              0,
+              0, NULL,
+              0, NULL,
+              0, NULL);
+
+            vkCmdEndQuery(commandBuffers[1], perf.queryPoolKHR, 0);
+            vkCmdEndQuery(commandBuffers[1], perf.queryPoolPipeline, 0);
+        }
+
+        VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffers[1])); // end recording commands.
     }
 
-    void runCommandBuffer() {
+    void runCommandBuffer(VkCommandBuffer *cmdBuf, const void *next) {
         /*
         Now we shall finally submit the recorded command buffer to a queue.
         */
 
         VkSubmitInfo submitInfo = {};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.pNext = next;
         submitInfo.commandBufferCount = 1; // submit a single command buffer
-        submitInfo.pCommandBuffers = &commandBuffer; // the command buffer to submit.
+        submitInfo.pCommandBuffers = cmdBuf; // the command buffer to submit.
 
         /*
           We create a fence.
@@ -789,6 +1075,10 @@ public:
         vkDestroyPipelineLayout(device, pipelineLayout, NULL);
         vkDestroyPipeline(device, pipeline, NULL);
         vkDestroyCommandPool(device, commandPool, NULL);	
+        if (perf.enabled) {
+            vkDestroyQueryPool(device, perf.queryPoolKHR, NULL);
+            vkDestroyQueryPool(device, perf.queryPoolPipeline, NULL);
+        }
         vkDestroyDevice(device, NULL);
         vkDestroyInstance(instance, NULL);		
     }

@@ -42,8 +42,17 @@ The storage buffer is then read from the GPU, and saved as .png.
 class ComputeApplication {
 private:
     // The pixels of the rendered mandelbrot set are in this format:
+    struct uvec4 {
+        uint32_t x, y, z, w;
+    };
     struct Pixel {
         float r, g, b, a;
+        uvec4 numWorkGroups;
+        uvec4 workGroupSize;
+        uvec4 workGroupID;
+        uvec4 localInvocationID;
+        uvec4 globalInvocationID;
+        uvec4 localInvocationIndex;
     };
     
     /*
@@ -302,12 +311,28 @@ public:
         // We save the data to a vector.
         std::vector<unsigned char> image;
         image.reserve(WIDTH * HEIGHT * 4);
+        FILE *dataFile = fopen("data.csv", "w");
+        fprintf(dataFile, "NumWG.x:int,NumWG.y:int,NumWG.z:int,");
+        fprintf(dataFile, "WGS.x:int,WGS.y:int,WGS.z:int,");
+        fprintf(dataFile, "GIID.x:int,GIID.y:int,GIID.z:int,");
+        fprintf(dataFile, "WGID.x:int,WGID.y:int,WGID.z:int,");
+        fprintf(dataFile, "LIID.x:int,LIID.y:int,LIID.z:int,");
+        fprintf(dataFile, "LIIndex:int\n");
+
         for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].g)));
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].b)));
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].a)));
+
+            fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].numWorkGroups.x, pmappedMemory[i].numWorkGroups.y, pmappedMemory[i].numWorkGroups.z);
+            fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].workGroupSize.x, pmappedMemory[i].workGroupSize.y, pmappedMemory[i].workGroupSize.z);
+            fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].globalInvocationID.x, pmappedMemory[i].globalInvocationID.y, pmappedMemory[i].globalInvocationID.z);
+            fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].workGroupID.x, pmappedMemory[i].workGroupID.y, pmappedMemory[i].workGroupID.z);
+            fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].localInvocationID.x, pmappedMemory[i].localInvocationID.y, pmappedMemory[i].localInvocationID.z);
+            fprintf(dataFile, "%u\n", pmappedMemory[i].localInvocationIndex.x);
         }
+        fclose(dataFile);
         // Done reading, so unmap.
         vkUnmapMemory(device, bufferMemory);
 

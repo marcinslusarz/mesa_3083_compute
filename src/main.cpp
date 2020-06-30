@@ -11,8 +11,13 @@
 #include "lodepng.h" //Used for png encoding.
 #include "renderdoc.h"
 
+#if 0
 const int WIDTH = 3200/64; // Size of rendered mandelbrot set.
 const int HEIGHT = 2400/64; // Size of renderered mandelbrot set.
+#else
+const int WIDTH = 128; // Size of rendered mandelbrot set.
+const int HEIGHT = 64; // Size of renderered mandelbrot set.
+#endif
 
 static int WORKGROUP_SIZE_X = 32; // Workgroup X size in compute shader.
 static int WORKGROUP_SIZE_Y = 32; // Workgroup Y size in compute shader.

@@ -663,6 +663,7 @@ public:
                 printf("phys dev ext name: %s\n", prop.extensionName);
         }
 
+#if 0
         VkPhysicalDeviceSubgroupProperties subgroupProperties;
         subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
         subgroupProperties.pNext = NULL;
@@ -676,6 +677,7 @@ public:
                 subgroupProperties.supportedOperations,
                 subgroupProperties.supportedStages,
                 subgroupProperties.subgroupSize);
+#endif
 
         /*
         We create the logical device in this function.

@@ -53,6 +53,7 @@ private:
         uvec4 localInvocationID;
         uvec4 globalInvocationID;
         uvec4 localInvocationIndex;
+        uvec4 subgroup;
     };
     
     /*
@@ -317,7 +318,8 @@ public:
         fprintf(dataFile, "GIID.x:int,GIID.y:int,GIID.z:int,");
         fprintf(dataFile, "WGID.x:int,WGID.y:int,WGID.z:int,");
         fprintf(dataFile, "LIID.x:int,LIID.y:int,LIID.z:int,");
-        fprintf(dataFile, "LIIndex:int\n");
+        fprintf(dataFile, "LIIndex:int,");
+        fprintf(dataFile, "SGID:int,SGIID:int,SGS:int,NumSG:int\n");
 
         for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
@@ -330,7 +332,8 @@ public:
             fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].globalInvocationID.x, pmappedMemory[i].globalInvocationID.y, pmappedMemory[i].globalInvocationID.z);
             fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].workGroupID.x, pmappedMemory[i].workGroupID.y, pmappedMemory[i].workGroupID.z);
             fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].localInvocationID.x, pmappedMemory[i].localInvocationID.y, pmappedMemory[i].localInvocationID.z);
-            fprintf(dataFile, "%u\n", pmappedMemory[i].localInvocationIndex.x);
+            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationIndex.x);
+            fprintf(dataFile, "%u,%u,%u,%u\n", pmappedMemory[i].subgroup.x, pmappedMemory[i].subgroup.y, pmappedMemory[i].subgroup.z, pmappedMemory[i].subgroup.w);
         }
         fclose(dataFile);
         // Done reading, so unmap.
@@ -438,7 +441,7 @@ public:
         applicationInfo.applicationVersion = 0;
         applicationInfo.pEngineName = "awesomeengine";
         applicationInfo.engineVersion = 0;
-        applicationInfo.apiVersion = VK_API_VERSION_1_0;;
+        applicationInfo.apiVersion = VK_API_VERSION_1_2;
         
         VkInstanceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -653,6 +656,20 @@ public:
             for (VkExtensionProperties prop : extensionProperties)
                 printf("phys dev ext name: %s\n", prop.extensionName);
         }
+
+        VkPhysicalDeviceSubgroupProperties subgroupProperties;
+        subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+        subgroupProperties.pNext = NULL;
+
+        VkPhysicalDeviceProperties2 physicalDeviceProperties;
+        physicalDeviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        physicalDeviceProperties.pNext = &subgroupProperties;
+
+        vkGetPhysicalDeviceProperties2(physicalDevice, &physicalDeviceProperties);
+        printf("sup ops: %u, sup stages: %u, sizes:%u\n",
+                subgroupProperties.supportedOperations,
+                subgroupProperties.supportedStages,
+                subgroupProperties.subgroupSize);
 
         /*
         We create the logical device in this function.

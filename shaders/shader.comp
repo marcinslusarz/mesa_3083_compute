@@ -1,12 +1,13 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
+#extension GL_KHR_shader_subgroup_basic : enable
 
 #define WIDTH 3200/64
 #define HEIGHT 2400/64
 #define WORKGROUP_SIZE_X 32
 #define WORKGROUP_SIZE_Y 32
 
-layout (local_size_x = WORKGROUP_SIZE_X, local_size_y = WORKGROUP_SIZE_Y, local_size_z = 1 ) in;
+layout (local_size_x = WORKGROUP_SIZE_X, local_size_y = WORKGROUP_SIZE_Y, local_size_z = 1) in;
 
 struct Pixel{
   vec4 value;
@@ -16,6 +17,7 @@ struct Pixel{
   uvec4 localInvocationID;
   uvec4 globalInvocationID;
   uvec4 localInvocationIndex;
+  uvec4 subgroup;
 };
 
 layout(std140, binding = 0) buffer buf
@@ -24,16 +26,32 @@ layout(std140, binding = 0) buffer buf
 };
 
 void main() {
+  uint SGID = gl_SubgroupID;            // core
+  uint NumSG = gl_NumSubgroups;
+
+  uint SGIID = gl_SubgroupInvocationID; // core
+  uint SGS = gl_SubgroupSize;
+
+  uvec3 WGID = gl_WorkGroupID;          // core
+  uvec3 NumWG = gl_NumWorkGroups;
+
+  uint LIInd = gl_LocalInvocationIndex;
+  uvec3 LIID = gl_LocalInvocationID;
+  uvec3 WGS = gl_WorkGroupSize;
+
+  uvec3 GIID = gl_GlobalInvocationID;
+
+  uint idx = WIDTH * GIID.y + GIID.x;
 
   /*
   In order to fit the work into workgroups, some unnecessary threads are launched.
   We terminate those threads here. 
   */
-  if(gl_GlobalInvocationID.x >= WIDTH || gl_GlobalInvocationID.y >= HEIGHT)
+  if (GIID.x >= WIDTH || GIID.y >= HEIGHT)
     return;
 
-  float x = float(gl_GlobalInvocationID.x) / float(WIDTH);
-  float y = float(gl_GlobalInvocationID.y) / float(HEIGHT);
+  float x = float(GIID.x) / float(WIDTH);
+  float y = float(GIID.y) / float(HEIGHT);
 
   /*
   What follows is code for rendering the mandelbrot set. 
@@ -63,12 +81,12 @@ void main() {
   vec3 g = vec3(0.0, 0.1, 0.0);
   vec4 color = vec4( d + e*cos( 6.28318*(f*t+g) ) ,1.0);
 
-  // store the rendered mandelbrot set into a storage buffer:
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].value = color;
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].numWorkGroups = uvec4(gl_NumWorkGroups, 0);
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].workGroupSize = uvec4(gl_WorkGroupSize, 0);
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].workGroupID = uvec4(gl_WorkGroupID, 0);
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].localInvocationID = uvec4(gl_LocalInvocationID, 0);
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].globalInvocationID = uvec4(gl_GlobalInvocationID, 0);
-  imageData[WIDTH * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x].localInvocationIndex = uvec4(gl_LocalInvocationIndex, 0, 0, 0);
+  imageData[idx].value = color;
+  imageData[idx].numWorkGroups = uvec4(NumWG, 0);
+  imageData[idx].workGroupSize = uvec4(WGS, 0);
+  imageData[idx].workGroupID = uvec4(WGID, 0);
+  imageData[idx].localInvocationID = uvec4(LIID, 0);
+  imageData[idx].globalInvocationID = uvec4(GIID, 0);
+  imageData[idx].localInvocationIndex = uvec4(LIInd, 0, 0, 0);
+  imageData[idx].subgroup = uvec4(SGID, SGIID, SGS, NumSG);
 }

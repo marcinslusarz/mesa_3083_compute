@@ -161,7 +161,7 @@ public:
             WORKGROUP_SIZE_Y = atoi(tmp);
 
         if (perf.enabled && perf.show_csv)
-            printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,thread_occupancy_pct:int\n");
+            printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
 
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
 
@@ -278,6 +278,7 @@ public:
                 printf("%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
                 printf("%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
                 printf("%lu,", recordedCountersPipeline[0]);
+                printf("%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
                 printf("%d\n", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
             } else {
                 printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);

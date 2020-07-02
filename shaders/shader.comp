@@ -65,18 +65,20 @@ void main() {
   */
   vec2 uv = vec2(x,y);
   float n = 0.0;
-  vec2 c = vec2(-.445, 0.0) +  (uv - 0.5)*(2.0+ 1.7*0.2  ), 
+  vec2 c = vec2(-.445, 0.0) +  (uv - 0.5) * (2.0 + 1.7 * 0.2),
   z = vec2(0.0);
   const int M =128;
-  for (int j = 0; j < 12000; ++j) {
-  z = vec2(0.0);
-  n = 0.0;
-  for (int i = 0; i<M; i++)
+  for (int j = 0; j < 12000; ++j)
   {
-    z = vec2(z.x*z.x - z.y*z.y, 2.*z.x*z.y) + c;
-    if (dot(z, z) > 2) break;
-    n++;
-  }
+    z = vec2(0.0);
+    n = 0.0;
+    for (int i = 0; i < M; i++)
+    {
+      z = vec2(z.x * z.x - z.y * z.y, 2. * z.x * z.y) + c;
+      if (dot(z, z) > 2)
+        break;
+      n++;
+    }
   }
           
   // we use a simple cosine palette to determine color:

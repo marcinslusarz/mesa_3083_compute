@@ -308,6 +308,7 @@ public:
         std::vector<unsigned char> image;
         image.reserve(WIDTH * HEIGHT * 4);
         FILE *dataFile = fopen("data.csv", "w");
+        fprintf(dataFile, "x:int,y:int,");
         fprintf(dataFile, "NumWG.x:int,NumWG.y:int,NumWG.z:int,");
         fprintf(dataFile, "WGS.x:int,WGS.y:int,WGS.z:int,");
         fprintf(dataFile, "GIID.x:int,GIID.y:int,GIID.z:int,");
@@ -322,6 +323,7 @@ public:
         fprintf(dataFile, "aFloat:string,aChar:int\n");
 
         for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
+            fprintf(dataFile, "%u,%u,", i % WIDTH, i / WIDTH);
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].g)));
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].b)));

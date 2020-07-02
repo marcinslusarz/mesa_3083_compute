@@ -49,10 +49,6 @@ void main() {
 
   uint idx = WIDTH * GIID.y + GIID.x;
 
-  /*
-  In order to fit the work into workgroups, some unnecessary threads are launched.
-  We terminate those threads here. 
-  */
   if (GIID.x >= WIDTH || GIID.y >= HEIGHT)
     return;
 
@@ -60,9 +56,6 @@ void main() {
   float x = float(GIID.x) / float(WIDTH);
   float y = float(GIID.y) / float(HEIGHT);
 
-  /*
-  What follows is code for rendering the mandelbrot set. 
-  */
   vec2 uv = vec2(x,y);
   float n = 0.0;
   vec2 c = vec2(-.445, 0.0) +  (uv - 0.5) * (2.0 + 1.7 * 0.2),
@@ -81,8 +74,6 @@ void main() {
     }
   }
           
-  // we use a simple cosine palette to determine color:
-  // http://iquilezles.org/www/articles/palettes/palettes.htm         
   float t = float(n) / float(M);
   vec3 d = vec3(0.3, 0.3 ,0.5);
   vec3 e = vec3(-0.2, -0.3 ,-0.5);

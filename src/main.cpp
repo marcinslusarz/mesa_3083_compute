@@ -11,16 +11,11 @@
 #include "lodepng.h" //Used for png encoding.
 #include "renderdoc.h"
 
-#if 0
-const int WIDTH = 3200/64; // Size of rendered mandelbrot set.
-const int HEIGHT = 2400/64; // Size of renderered mandelbrot set.
-#else
-const int WIDTH = 128; // Size of rendered mandelbrot set.
-const int HEIGHT = 64; // Size of renderered mandelbrot set.
-#endif
+static int WIDTH;
+static int HEIGHT;
 
-static int WORKGROUP_SIZE_X = 32; // Workgroup X size in compute shader.
-static int WORKGROUP_SIZE_Y = 32; // Workgroup Y size in compute shader.
+static int WORKGROUP_SIZE_X;
+static int WORKGROUP_SIZE_Y;
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -158,12 +153,6 @@ public:
     void run() {
         perf.enabled = getenv("PERF_ENABLED") == NULL;
         perf.show_csv = getenv("CSV") != NULL;
-        const char *tmp = getenv("GROUP_X");
-        if (tmp)
-            WORKGROUP_SIZE_X = atoi(tmp);
-        tmp = getenv("GROUP_Y");
-        if (tmp)
-            WORKGROUP_SIZE_Y = atoi(tmp);
 
         if (perf.enabled && perf.show_csv)
             printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
@@ -1167,7 +1156,20 @@ public:
     }
 };
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc != 5) {
+        fprintf(stderr, "Usage: %s IMG_WIDTH IMG_HEIGHT GROUP_X GROUP_Y\n", argv[0]);
+        exit(1);
+    }
+
+    WIDTH = atoi(argv[1]);
+    HEIGHT = atoi(argv[2]);
+    WORKGROUP_SIZE_X = atoi(argv[3]);
+    WORKGROUP_SIZE_Y = atoi(argv[4]);
+
+    if (WORKGROUP_SIZE_X == 0 || WORKGROUP_SIZE_Y == 0 || WIDTH == 0 || HEIGHT == 0)
+        abort();
+
     ComputeApplication app;
 
     try {

@@ -325,7 +325,12 @@ public:
         fprintf(dataFile, "WGID.x:int,WGID.y:int,WGID.z:int,");
         fprintf(dataFile, "LIID.x:int,LIID.y:int,LIID.z:int,");
         fprintf(dataFile, "LIIndex:int,");
-        fprintf(dataFile, "SGID:int,SGIID:int,SGS:int,NumSG:int\n");
+        fprintf(dataFile, "SGID:int,SGIID:int,SGS:int,NumSG:int,");
+
+        fprintf(dataFile, "rFloat:string,rChar:int,");
+        fprintf(dataFile, "gFloat:string,gChar:int,");
+        fprintf(dataFile, "bFloat:string,bChar:int,");
+        fprintf(dataFile, "aFloat:string,aChar:int\n");
 
         for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
             image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
@@ -339,7 +344,12 @@ public:
             fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].workGroupID.x, pmappedMemory[i].workGroupID.y, pmappedMemory[i].workGroupID.z);
             fprintf(dataFile, "%u,%u,%u,", pmappedMemory[i].localInvocationID.x, pmappedMemory[i].localInvocationID.y, pmappedMemory[i].localInvocationID.z);
             fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationIndex.x);
-            fprintf(dataFile, "%u,%u,%u,%u\n", pmappedMemory[i].subgroup.x, pmappedMemory[i].subgroup.y, pmappedMemory[i].subgroup.z, pmappedMemory[i].subgroup.w);
+            fprintf(dataFile, "%u,%u,%u,%u,", pmappedMemory[i].subgroup.x, pmappedMemory[i].subgroup.y, pmappedMemory[i].subgroup.z, pmappedMemory[i].subgroup.w);
+
+            fprintf(dataFile, "%f,%u,", pmappedMemory[i].r, (unsigned char)(255.0f * (pmappedMemory[i].r)));
+            fprintf(dataFile, "%f,%u,", pmappedMemory[i].g, (unsigned char)(255.0f * (pmappedMemory[i].g)));
+            fprintf(dataFile, "%f,%u,", pmappedMemory[i].b, (unsigned char)(255.0f * (pmappedMemory[i].b)));
+            fprintf(dataFile, "%f,%u\n", pmappedMemory[i].a, (unsigned char)(255.0f * (pmappedMemory[i].a)));
         }
         fclose(dataFile);
         // Done reading, so unmap.

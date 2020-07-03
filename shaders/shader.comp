@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_KHR_shader_subgroup_basic : enable
 
-layout (local_size_x = WORKGROUP_SIZE_X, local_size_y = WORKGROUP_SIZE_Y, local_size_z = 1) in;
+layout (local_size_x = WORKGROUP_SIZE_X, local_size_y = WORKGROUP_SIZE_Y, local_size_z = WORKGROUP_SIZE_Z) in;
 
 struct Pixel{
   vec4 value;
@@ -36,28 +36,29 @@ void main() {
 
   uvec3 GIID = gl_GlobalInvocationID;
 
-  uint idx = WIDTH * GIID.y + GIID.x;
+  uint idx = WIDTH * HEIGHT * GIID.z + WIDTH * GIID.y + GIID.x;
 
-  if (GIID.x >= WIDTH || GIID.y >= HEIGHT)
+  if (GIID.x >= WIDTH || GIID.y >= HEIGHT || GIID.z >= DEPTH)
     return;
 
 #if 1
   float x = float(GIID.x) / float(WIDTH);
   float y = float(GIID.y) / float(HEIGHT);
+  float z = float(GIID.z) / float(DEPTH);
 
   vec2 uv = vec2(x,y);
   float n = 0.0;
   vec2 c = vec2(-.445, 0.0) +  (uv - 0.5) * (2.0 + 1.7 * 0.2),
-  z = vec2(0.0);
-  const int M =128;
+  zz = vec2(0.0);
+  const int M = 128;
   for (int j = 0; j < 12000; ++j)
   {
-    z = vec2(0.0);
+    zz = vec2(0.0);
     n = 0.0;
     for (int i = 0; i < M; i++)
     {
-      z = vec2(z.x * z.x - z.y * z.y, 2. * z.x * z.y) + c;
-      if (dot(z, z) > 2)
+      zz = vec2(zz.x * zz.x - zz.y * zz.y, 2. * zz.x * zz.y) + c;
+      if (dot(zz, zz) > 2)
         break;
       n++;
     }
@@ -68,7 +69,7 @@ void main() {
   vec3 e = vec3(-0.2, -0.3 ,-0.5);
   vec3 f = vec3(2.1, 2.0, 3.0);
   vec3 g = vec3(0.0, 0.1, 0.0);
-  vec4 color = vec4( d + e*cos( 6.28318*(f*t+g) ) ,1.0);
+  vec4 color = vec4(d + e * cos(6.28318 * (f * t + g)) * (1 - z), 1.0);
 #else
   vec4 color = vec4(0.1, 0.2, 0.3, 0.4);
 #endif

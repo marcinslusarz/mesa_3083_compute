@@ -13,9 +13,11 @@
 
 static int WIDTH;
 static int HEIGHT;
+static int DEPTH;
 
 static int WORKGROUP_SIZE_X;
 static int WORKGROUP_SIZE_Y;
+static int WORKGROUP_SIZE_Z;
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -174,7 +176,7 @@ public:
         }
 
         // Buffer size of the storage buffer that will contain the rendered mandelbrot set.
-        bufferSize = sizeof(Pixel) * WIDTH * HEIGHT;
+        bufferSize = sizeof(Pixel) * WIDTH * HEIGHT * DEPTH;
 
         // Initialize vulkan:
         createInstance();
@@ -275,7 +277,7 @@ public:
                     0));
 
             if (perf.show_csv) {
-                fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 1);
+                fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
                 fprintf(statsFile, "%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
                 fprintf(statsFile, "%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
                 fprintf(statsFile, "%lu,", recordedCountersPipeline[0]);
@@ -313,7 +315,7 @@ public:
         // Get the color data from the buffer, and cast it to bytes.
         // We save the data to a vector.
         std::vector<unsigned char> image;
-        image.reserve(WIDTH * HEIGHT * 4);
+        image.reserve(WIDTH * HEIGHT * DEPTH * 4);
 
         FILE *dataFile = fopen("data.csv", "w");
 
@@ -361,14 +363,14 @@ public:
         fprintf(dataFile, "aFloat:string,");
         fprintf(dataFile, "aChar:int\n");
 
-        for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
-            fprintf(dataFile, "0,");
+        for (int i = 0; i < WIDTH * HEIGHT * DEPTH; ++i) {
+            fprintf(dataFile, "%u,", i  / (WIDTH * HEIGHT));
             fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.z);
 
-            fprintf(dataFile, "%u,", i / WIDTH);
+            fprintf(dataFile, "%u,", (i % (WIDTH * HEIGHT)) / WIDTH);
             fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.y);
 
-            fprintf(dataFile, "%u,", i % WIDTH);
+            fprintf(dataFile, "%u,", (i % (WIDTH * HEIGHT)) % WIDTH);
             fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.x);
 
             fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.z);
@@ -418,7 +420,7 @@ public:
         vkUnmapMemory(device, bufferMemory);
 
         // Now we save the acquired color data to a .png.
-        unsigned error = lodepng::encode("mandelbrot.png", image, WIDTH, HEIGHT);
+        unsigned error = lodepng::encode("mandelbrot.png", image, WIDTH, HEIGHT * DEPTH);
         if (error) printf("encoder error %d: %s", error, lodepng_error_text(error));
     }
 
@@ -1148,7 +1150,10 @@ public:
         The number of workgroups is specified in the arguments.
         If you are already familiar with compute shaders from OpenGL, this should be nothing new to you.
         */
-        vkCmdDispatch(commandBuffers[1], (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE_X)), (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE_Y)), 1);
+        vkCmdDispatch(commandBuffers[1],
+                (uint32_t)ceil(WIDTH / float(WORKGROUP_SIZE_X)),
+                (uint32_t)ceil(HEIGHT / float(WORKGROUP_SIZE_Y)),
+                (uint32_t)ceil(DEPTH / float(WORKGROUP_SIZE_Z)));
 
         if (perf.enabled) {
             vkCmdPipelineBarrier(commandBuffers[1],
@@ -1234,17 +1239,20 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    if (argc != 5) {
-        fprintf(stderr, "Usage: %s IMG_WIDTH IMG_HEIGHT GROUP_X GROUP_Y\n", argv[0]);
+    if (argc != 7) {
+        fprintf(stderr, "Usage: %s IMG_WIDTH IMG_HEIGHT IMG_DEPTH GROUP_X GROUP_Y GROUP_Z\n", argv[0]);
         exit(1);
     }
 
     WIDTH = atoi(argv[1]);
     HEIGHT = atoi(argv[2]);
-    WORKGROUP_SIZE_X = atoi(argv[3]);
-    WORKGROUP_SIZE_Y = atoi(argv[4]);
+    DEPTH = atoi(argv[3]);
+    WORKGROUP_SIZE_X = atoi(argv[4]);
+    WORKGROUP_SIZE_Y = atoi(argv[5]);
+    WORKGROUP_SIZE_Z = atoi(argv[6]);
 
-    if (WORKGROUP_SIZE_X == 0 || WORKGROUP_SIZE_Y == 0 || WIDTH == 0 || HEIGHT == 0)
+    if (WORKGROUP_SIZE_X == 0 || WORKGROUP_SIZE_Y == 0 || WORKGROUP_SIZE_Z == 0||
+            WIDTH == 0 || HEIGHT == 0 || DEPTH == 0)
         abort();
 
     ComputeApplication app;

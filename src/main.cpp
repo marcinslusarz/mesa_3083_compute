@@ -153,9 +153,16 @@ public:
     void run() {
         perf.enabled = getenv("PERF_ENABLED") == NULL;
         perf.show_csv = getenv("CSV") != NULL;
+        FILE *statsFile = NULL;
 
-        if (perf.enabled && perf.show_csv)
-            printf("x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+        if (perf.enabled && perf.show_csv) {
+            statsFile = fopen("stats.csv", "w");
+            if (!statsFile) {
+                perror("fopen stats.csv");
+                exit(2);
+            }
+            fprintf(statsFile, "x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+        }
 
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
 
@@ -268,12 +275,12 @@ public:
                     0));
 
             if (perf.show_csv) {
-                printf("%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 1);
-                printf("%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
-                printf("%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                printf("%lu,", recordedCountersPipeline[0]);
-                printf("%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                printf("%d\n", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
+                fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, 1);
+                fprintf(statsFile, "%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
+                fprintf(statsFile, "%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                fprintf(statsFile, "%lu,", recordedCountersPipeline[0]);
+                fprintf(statsFile, "%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                fprintf(statsFile, "%d\n", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
             } else {
                 printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
                 printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);

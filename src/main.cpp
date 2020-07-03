@@ -420,7 +420,32 @@ public:
         vkUnmapMemory(device, bufferMemory);
 
         // Now we save the acquired color data to a .png.
-        unsigned error = lodepng::encode("mandelbrot.png", image, WIDTH, HEIGHT * DEPTH);
+        unsigned error;
+
+        const bool grid = true;
+        if (grid) {
+            /* this could be done on the GPU if the purpose of this test
+             * would be to this as quickly as possible */
+            std::vector<unsigned char> image2;
+            image2.reserve(WIDTH * HEIGHT * DEPTH * 4);
+            int columns = (int)ceil(sqrt(DEPTH));
+            while (DEPTH % columns != 0)
+                columns++;
+
+            for (int r = 0; r < DEPTH / columns; ++r) {
+                for (int h = 0; h < HEIGHT; ++h) {
+                    for (int c = 0; c < columns; ++c) {
+                        std::vector<unsigned char>::iterator it =
+                                image.begin() + 4 * ((r * columns + c) * WIDTH * HEIGHT + h * WIDTH);
+                        image2.insert(image2.end(), it, it + WIDTH * 4);
+                    }
+                }
+            }
+            error = lodepng::encode("result.png", image2, WIDTH * columns, HEIGHT * DEPTH / columns);
+        } else {
+            error = lodepng::encode("result.png", image, WIDTH, HEIGHT * DEPTH);
+        }
+
         if (error) printf("encoder error %d: %s", error, lodepng_error_text(error));
     }
 

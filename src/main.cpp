@@ -314,29 +314,43 @@ public:
         // We save the data to a vector.
         std::vector<unsigned char> image;
         image.reserve(WIDTH * HEIGHT * 4);
+
         FILE *dataFile = fopen("data.csv", "w");
-        fprintf(dataFile, "x:int,");
-        fprintf(dataFile, "y:int,");
-        fprintf(dataFile, "NumWG.x:int,");
-        fprintf(dataFile, "NumWG.y:int,");
-        fprintf(dataFile, "NumWG.z:int,");
-        fprintf(dataFile, "WGS.x:int,");
-        fprintf(dataFile, "WGS.y:int,");
-        fprintf(dataFile, "WGS.z:int,");
-        fprintf(dataFile, "GIID.x:int,");
-        fprintf(dataFile, "GIID.y:int,");
+
+        fprintf(dataFile, "z:int,");
         fprintf(dataFile, "GIID.z:int,");
-        fprintf(dataFile, "WGID.x:int,");
-        fprintf(dataFile, "WGID.y:int,");
+
+        fprintf(dataFile, "y:int,");
+        fprintf(dataFile, "GIID.y:int,");
+
+        fprintf(dataFile, "x:int,");
+        fprintf(dataFile, "GIID.x:int,");
+
         fprintf(dataFile, "WGID.z:int,");
-        fprintf(dataFile, "LIID.x:int,");
-        fprintf(dataFile, "LIID.y:int,");
+        fprintf(dataFile, "NumWG.z:int,");
+
+        fprintf(dataFile, "WGID.y:int,");
+        fprintf(dataFile, "NumWG.y:int,");
+
+        fprintf(dataFile, "WGID.x:int,");
+        fprintf(dataFile, "NumWG.x:int,");
+
         fprintf(dataFile, "LIID.z:int,");
+        fprintf(dataFile, "WGS.z:int,");
+
+        fprintf(dataFile, "LIID.y:int,");
+        fprintf(dataFile, "WGS.y:int,");
+
+        fprintf(dataFile, "LIID.x:int,");
+        fprintf(dataFile, "WGS.x:int,");
+
         fprintf(dataFile, "LIIndex:int,");
+
         fprintf(dataFile, "SGID:int,");
+        fprintf(dataFile, "NumSG:int,");
+
         fprintf(dataFile, "SGIID:int,");
         fprintf(dataFile, "SGS:int,");
-        fprintf(dataFile, "NumSG:int,");
 
         fprintf(dataFile, "rFloat:string,");
         fprintf(dataFile, "rChar:int,");
@@ -348,33 +362,40 @@ public:
         fprintf(dataFile, "aChar:int\n");
 
         for (int i = 0; i < WIDTH*HEIGHT; i += 1) {
-            fprintf(dataFile, "%u,", i % WIDTH);
-            fprintf(dataFile, "%u,", i / WIDTH);
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].g)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].b)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].a)));
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.y);
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.y);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.y);
+            fprintf(dataFile, "0,");
             fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.y);
+
+            fprintf(dataFile, "%u,", i / WIDTH);
+            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.y);
+
+            fprintf(dataFile, "%u,", i % WIDTH);
+            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.x);
+
             fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.y);
+            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.z);
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.y);
+            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.y);
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.x);
+            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.x);
+
             fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.z);
+            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.z);
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.y);
+            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.y);
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.x);
+            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.x);
+
             fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationIndex.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.y);
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.w);
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.x); // SGID
+            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.w); // NumSG
+
+            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.y); // SGIID
+            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.z); // SGS
 
             fprintf(dataFile, "%f,", pmappedMemory[i].r);
             fprintf(dataFile, "%u,", (unsigned char)(255.0f * (pmappedMemory[i].r)));
@@ -386,6 +407,11 @@ public:
             fprintf(dataFile, "%u", (unsigned char)(255.0f * (pmappedMemory[i].a)));
 
             fprintf(dataFile, "\n");
+
+            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
+            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].g)));
+            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].b)));
+            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].a)));
         }
         fclose(dataFile);
         // Done reading, so unmap.

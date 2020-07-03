@@ -713,19 +713,23 @@ public:
         deviceCreateInfo.queueCreateInfoCount = 1;
         deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
 
+        VkPhysicalDevicePerformanceQueryFeaturesKHR perfFeatures = {
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR,
+        };
+
         if (perf.enabled) {
             const char *ext_names[] = { VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME };
             deviceCreateInfo.ppEnabledExtensionNames = ext_names;
             deviceCreateInfo.enabledExtensionCount = 1;
 
-            VkPhysicalDevicePerformanceQueryFeaturesKHR perfFeatures = {
-                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR,
-            };
+            VkPhysicalDeviceFeatures2 features;
+            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            features.pNext = &perfFeatures;
 
-            perfFeatures.performanceCounterQueryPools = VK_TRUE;
-            perfFeatures.performanceCounterMultipleQueryPools = VK_FALSE;
+            vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
 
-            perfFeatures.pNext = NULL;
+            assert(perfFeatures.performanceCounterQueryPools == VK_TRUE);
+
             deviceCreateInfo.pNext = &perfFeatures;
         }
 

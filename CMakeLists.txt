@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 3.8)
-project (vulkan_minimal_compute)
+project (mesa3083_compute)
 
 find_package(PkgConfig)
 

@@ -8,8 +8,8 @@
 #include <stdexcept>
 #include <cmath>
 
-#include "lodepng.h" //Used for png encoding.
 #include "renderdoc.h"
+#include "shared.h"
 
 static int WIDTH;
 static int HEIGHT;
@@ -43,21 +43,6 @@ The storage buffer is then read from the GPU, and saved as .png.
 */
 class ComputeApplication {
 private:
-    // The pixels of the rendered mandelbrot set are in this format:
-    struct uvec4 {
-        uint32_t x, y, z, w;
-    };
-    struct Pixel {
-        float r, g, b, a;
-        uvec4 numWorkGroups;
-        uvec4 workGroupSize;
-        uvec4 workGroupID;
-        uvec4 localInvocationID;
-        uvec4 globalInvocationID;
-        uvec4 localInvocationIndex;
-        uvec4 subgroup;
-    };
-    
     /*
     In order to use Vulkan, you must create an instance. 
     */
@@ -313,143 +298,12 @@ public:
         void* mappedMemory = NULL;
         // Map the buffer memory, so that we can read from it on the CPU.
         vkMapMemory(device, bufferMemory, 0, bufferSize, 0, &mappedMemory);
-        Pixel* pmappedMemory = (Pixel *)mappedMemory;
+        Pixel *pmappedMemory = (Pixel *)mappedMemory;
 
-        // Get the color data from the buffer, and cast it to bytes.
-        // We save the data to a vector.
-        std::vector<unsigned char> image;
-        image.reserve(WIDTH * HEIGHT * DEPTH * 4);
+        save_data(pmappedMemory, WIDTH, HEIGHT, DEPTH);
 
-        FILE *dataFile = fopen("data.csv", "w");
-
-        fprintf(dataFile, "z:int,");
-        fprintf(dataFile, "GIID.z:int,");
-
-        fprintf(dataFile, "y:int,");
-        fprintf(dataFile, "GIID.y:int,");
-
-        fprintf(dataFile, "x:int,");
-        fprintf(dataFile, "GIID.x:int,");
-
-        fprintf(dataFile, "WGID.z:int,");
-        fprintf(dataFile, "NumWG.z:int,");
-
-        fprintf(dataFile, "WGID.y:int,");
-        fprintf(dataFile, "NumWG.y:int,");
-
-        fprintf(dataFile, "WGID.x:int,");
-        fprintf(dataFile, "NumWG.x:int,");
-
-        fprintf(dataFile, "LIID.z:int,");
-        fprintf(dataFile, "WGS.z:int,");
-
-        fprintf(dataFile, "LIID.y:int,");
-        fprintf(dataFile, "WGS.y:int,");
-
-        fprintf(dataFile, "LIID.x:int,");
-        fprintf(dataFile, "WGS.x:int,");
-
-        fprintf(dataFile, "LIIndex:int,");
-
-        fprintf(dataFile, "SGID:int,");
-        fprintf(dataFile, "NumSG:int,");
-
-        fprintf(dataFile, "SGIID:int,");
-        fprintf(dataFile, "SGS:int,");
-
-        fprintf(dataFile, "rFloat:string,");
-        fprintf(dataFile, "rChar:int,");
-        fprintf(dataFile, "gFloat:string,");
-        fprintf(dataFile, "gChar:int,");
-        fprintf(dataFile, "bFloat:string,");
-        fprintf(dataFile, "bChar:int,");
-        fprintf(dataFile, "aFloat:string,");
-        fprintf(dataFile, "aChar:int\n");
-
-        for (int i = 0; i < WIDTH * HEIGHT * DEPTH; ++i) {
-            fprintf(dataFile, "%u,", i  / (WIDTH * HEIGHT));
-            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.z);
-
-            fprintf(dataFile, "%u,", (i % (WIDTH * HEIGHT)) / WIDTH);
-            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.y);
-
-            fprintf(dataFile, "%u,", (i % (WIDTH * HEIGHT)) % WIDTH);
-            fprintf(dataFile, "%u,", pmappedMemory[i].globalInvocationID.x);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.z);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.y);
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.y);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupID.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].numWorkGroups.x);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.z);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.z);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.y);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.y);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationID.x);
-            fprintf(dataFile, "%u,", pmappedMemory[i].workGroupSize.x);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].localInvocationIndex.x);
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.x); // SGID
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.w); // NumSG
-
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.y); // SGIID
-            fprintf(dataFile, "%u,", pmappedMemory[i].subgroup.z); // SGS
-
-            fprintf(dataFile, "%f,", pmappedMemory[i].r);
-            fprintf(dataFile, "%u,", (unsigned char)(255.0f * (pmappedMemory[i].r)));
-            fprintf(dataFile, "%f,", pmappedMemory[i].g);
-            fprintf(dataFile, "%u,", (unsigned char)(255.0f * (pmappedMemory[i].g)));
-            fprintf(dataFile, "%f,", pmappedMemory[i].b);
-            fprintf(dataFile, "%u,", (unsigned char)(255.0f * (pmappedMemory[i].b)));
-            fprintf(dataFile, "%f,", pmappedMemory[i].a);
-            fprintf(dataFile, "%u", (unsigned char)(255.0f * (pmappedMemory[i].a)));
-
-            fprintf(dataFile, "\n");
-
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].r)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].g)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].b)));
-            image.push_back((unsigned char)(255.0f * (pmappedMemory[i].a)));
-        }
-        fclose(dataFile);
         // Done reading, so unmap.
         vkUnmapMemory(device, bufferMemory);
-
-        // Now we save the acquired color data to a .png.
-        unsigned error;
-
-        const bool grid = true;
-        if (grid) {
-            /* this could be done on the GPU if the purpose of this test
-             * would be to this as quickly as possible */
-            std::vector<unsigned char> image2;
-            image2.reserve(WIDTH * HEIGHT * DEPTH * 4);
-            int columns = (int)ceil(sqrt(DEPTH));
-            while (DEPTH % columns != 0)
-                columns++;
-
-            for (int r = 0; r < DEPTH / columns; ++r) {
-                for (int h = 0; h < HEIGHT; ++h) {
-                    for (int c = 0; c < columns; ++c) {
-                        std::vector<unsigned char>::iterator it =
-                                image.begin() + 4 * ((r * columns + c) * WIDTH * HEIGHT + h * WIDTH);
-                        image2.insert(image2.end(), it, it + WIDTH * 4);
-                    }
-                }
-            }
-            error = lodepng::encode("result.png", image2, WIDTH * columns, HEIGHT * DEPTH / columns);
-        } else {
-            error = lodepng::encode("result.png", image, WIDTH, HEIGHT * DEPTH);
-        }
-
-        if (error) printf("encoder error %d: %s", error, lodepng_error_text(error));
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallbackFn(

@@ -19,11 +19,11 @@ include_directories(${EGL_INCLUDE_DIRS})
 include_directories(${GBM_INCLUDE_DIRS})
 include_directories(${GL_INCLUDE_DIRS})
 
-add_executable(vulkan_minimal_compute src/main.cpp src/lodepng.cpp src/shared.cpp)
+add_executable(vulkan_compute src/vulkan.cpp src/lodepng.cpp src/shared.cpp)
 
-set_target_properties(vulkan_minimal_compute PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+set_target_properties(vulkan_compute PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-target_link_libraries(vulkan_minimal_compute ${Vulkan_LIBRARIES} ${CMAKE_DL_LIBS})
+target_link_libraries(vulkan_compute ${Vulkan_LIBRARIES} ${CMAKE_DL_LIBS})
 
 
 add_executable(gl_compute src/gl.c src/lodepng.cpp src/shared.cpp)

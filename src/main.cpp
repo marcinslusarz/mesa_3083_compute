@@ -264,6 +264,9 @@ public:
                     case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:
                         printf("%g\n", c.float64);
                         break;
+                    case VK_PERFORMANCE_COUNTER_STORAGE_MAX_ENUM_KHR:
+                        assert(0);
+                        break;
                     }
                     i++;
                 }
@@ -757,7 +760,6 @@ public:
             std::vector<VkExtensionProperties> extensionProperties(extensionCount);
             vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, extensionProperties.data());
 
-            bool foundExtension = false;
             for (VkExtensionProperties prop : extensionProperties)
                 printf("phys dev ext name: %s\n", prop.extensionName);
         }

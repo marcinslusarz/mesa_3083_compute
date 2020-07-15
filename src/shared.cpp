@@ -6,7 +6,7 @@
 #include "shared.h"
 
 void
-save_data(Pixel *data, int width, int height, int depth)
+save_data(struct Pixel *data, int width, int height, int depth)
 {
     std::vector<unsigned char> image;
     image.reserve(width * height * depth * 4);

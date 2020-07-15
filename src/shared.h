@@ -12,16 +12,16 @@ struct uvec4 {
 };
 struct Pixel {
     float r, g, b, a;
-    uvec4 numWorkGroups;
-    uvec4 workGroupSize;
-    uvec4 workGroupID;
-    uvec4 localInvocationID;
-    uvec4 globalInvocationID;
-    uvec4 localInvocationIndex;
-    uvec4 subgroup;
+    struct uvec4 numWorkGroups;
+    struct uvec4 workGroupSize;
+    struct uvec4 workGroupID;
+    struct uvec4 localInvocationID;
+    struct uvec4 globalInvocationID;
+    struct uvec4 localInvocationIndex;
+    struct uvec4 subgroup;
 };
 
-void save_data(Pixel *data, int width, int height, int depth);
+void save_data(struct Pixel *data, int width, int height, int depth);
 
 #ifdef __cplusplus
 }

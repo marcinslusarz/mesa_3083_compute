@@ -18,6 +18,115 @@
 
 #include "shared.h"
 
+struct {
+    bool enabled;
+    bool show_csv;
+    FILE *statsFile;
+    struct {
+        unsigned queryHandle;
+        unsigned dataSize;
+        unsigned off_threads;
+        unsigned off_thread_occupancy_pct;
+        unsigned off_time_ns;
+    } compute_metrics_basic;
+
+    struct {
+        unsigned queryHandle;
+        unsigned dataSize;
+        unsigned off_cs_invocations;
+    } pipeline_statistics;
+
+    bool dbg;
+} perf;
+
+static void
+query_query(char *name, bool pipeline)
+{
+    unsigned queryId;
+    glGetPerfQueryIdByNameINTEL(name, &queryId);
+    if (glGetError() != GL_NO_ERROR) {
+        fprintf(stderr,
+                "Query %s not found. Disable performance queries with PERF_ENABLED=0\n",
+                name);
+        assert(0);
+    }
+    if (perf.dbg)
+        printf("queryId: %u\n", queryId);
+
+    char queryName[4096];
+    unsigned dataSize, noCounters, noInstances, capsMask;
+    glGetPerfQueryInfoINTEL(queryId, sizeof(queryName), queryName, &dataSize,
+                            &noCounters, &noInstances, &capsMask);
+    assert(glGetError() == GL_NO_ERROR);
+
+    if (perf.dbg)
+        printf("query name: %s, data size: %u\n", queryName, dataSize);
+    if (pipeline)
+        perf.pipeline_statistics.dataSize = dataSize;
+    else
+        perf.compute_metrics_basic.dataSize = dataSize;
+
+    for (int counterId = 1; counterId <= noCounters; counterId++) {
+        uint counterOffset;
+        uint counterDataSize;
+        uint counterTypeEnum;
+        uint counterDataTypeEnum;
+        uint64_t rawCounterMaxValue;
+        char counterName[32];
+        char counterDesc[256];
+
+        glGetPerfCounterInfoINTEL(
+                queryId,
+                counterId,
+                sizeof(counterName),
+                counterName,
+                sizeof(counterDesc),
+                counterDesc,
+                &counterOffset,
+                &counterDataSize,
+                &counterTypeEnum,
+                &counterDataTypeEnum,
+                &rawCounterMaxValue);
+        assert(glGetError() == GL_NO_ERROR);
+
+        if (strcmp(counterName, "CS Threads Dispatched") == 0) {
+            assert(!pipeline);
+            perf.compute_metrics_basic.off_threads = counterOffset;
+            assert(counterDataSize == 8);
+            assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
+            assert(counterTypeEnum == GL_PERFQUERY_COUNTER_EVENT_INTEL);
+        } else if (strcmp(counterName, "EU Thread Occupancy") == 0) {
+            assert(!pipeline);
+            perf.compute_metrics_basic.off_thread_occupancy_pct = counterOffset;
+            assert(counterDataSize == 4);
+            assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_FLOAT_INTEL);
+            assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
+        } else if (strcmp(counterName, "GPU Time Elapsed") == 0) {
+            assert(!pipeline);
+            perf.compute_metrics_basic.off_time_ns = counterOffset;
+            assert(counterDataSize == 8);
+            assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
+            assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
+        } else if (strcmp(counterName, "N compute shader invocations") == 0) {
+            assert(pipeline);
+            perf.pipeline_statistics.off_cs_invocations = counterOffset;
+            assert(counterDataSize == 8);
+            assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
+            assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
+        }
+
+        if (perf.dbg)
+            printf("id: %2u, name: %32s, off: %3u, datasize: %u\n",
+                    counterId, counterName, counterOffset, counterDataSize);
+    }
+
+    if (pipeline)
+        glCreatePerfQueryINTEL(queryId, &perf.pipeline_statistics.queryHandle);
+    else
+        glCreatePerfQueryINTEL(queryId, &perf.compute_metrics_basic.queryHandle);
+    assert(glGetError() == GL_NO_ERROR);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -32,18 +141,6 @@ main(int argc, char *argv[])
     int WORKGROUP_SIZE_X = atoi(argv[6]);
     int WORKGROUP_SIZE_Y = atoi(argv[7]);
     int WORKGROUP_SIZE_Z = atoi(argv[8]);
-
-    struct {
-        bool enabled;
-        bool show_csv;
-        FILE *statsFile;
-        unsigned queryHandle;
-        unsigned dataSize;
-        unsigned off_threads;
-        unsigned off_thread_occupancy_pct;
-        unsigned off_time_ns;
-        bool dbg;
-    } perf;
 
     perf.enabled = getenv("PERF_ENABLED") == NULL;
     if (perf.enabled) {
@@ -298,80 +395,21 @@ main(int argc, char *argv[])
 
     if (perf.enabled) {
         // perf.dbg = true;
-        unsigned queryId;
-        char qname[] = "Compute Metrics Basic Gen9";
-        glGetPerfQueryIdByNameINTEL(qname, &queryId);
-        if (glGetError() != GL_NO_ERROR) {
-            fprintf(stderr,
-                    "Query %s not found. Disable performance queries with PERF_ENABLED=0\n",
-                    qname);
-            assert(0);
-        }
-        if (perf.dbg)
-            printf("queryId: %u\n", queryId);
 
-        char queryName[4096];
-        unsigned dataSize, noCounters, noInstances, capsMask;
-        glGetPerfQueryInfoINTEL(queryId, sizeof(queryName), queryName, &dataSize,
-                                &noCounters, &noInstances, &capsMask);
+        perf.compute_metrics_basic.off_thread_occupancy_pct = 0;
+        perf.compute_metrics_basic.off_threads = 0;
+        perf.compute_metrics_basic.off_time_ns = 0;
+        perf.pipeline_statistics.off_cs_invocations = 0;
+
+        char qname0[] = "Compute Metrics Basic Gen9";
+        char qname1[] = "Pipeline Statistics Registers";
+        query_query(qname0, false);
+        query_query(qname1, true);
+
+        glBeginPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
         assert(glGetError() == GL_NO_ERROR);
 
-        if (perf.dbg)
-            printf("query name: %s, data size: %u\n", queryName, dataSize);
-        perf.dataSize = dataSize;
-
-        perf.off_thread_occupancy_pct = 0;
-        perf.off_threads = 0;
-        perf.off_time_ns = 0;
-
-        for (int counterId = 1; counterId <= noCounters; counterId++) {
-            uint counterOffset;
-            uint counterDataSize;
-            uint counterTypeEnum;
-            uint counterDataTypeEnum;
-            uint64_t rawCounterMaxValue;
-            char counterName[32];
-            char counterDesc[256];
-
-            glGetPerfCounterInfoINTEL(
-                    queryId,
-                    counterId,
-                    sizeof(counterName),
-                    counterName,
-                    sizeof(counterDesc),
-                    counterDesc,
-                    &counterOffset,
-                    &counterDataSize,
-                    &counterTypeEnum,
-                    &counterDataTypeEnum,
-                    &rawCounterMaxValue);
-            assert(glGetError() == GL_NO_ERROR);
-
-            if (strcmp(counterName, "CS Threads Dispatched") == 0) {
-                perf.off_threads = counterOffset;
-                assert(counterDataSize == 8);
-                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
-                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_EVENT_INTEL);
-            } else if (strcmp(counterName, "EU Thread Occupancy") == 0) {
-                perf.off_thread_occupancy_pct = counterOffset;
-                assert(counterDataSize == 4);
-                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_FLOAT_INTEL);
-                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
-            } else if (strcmp(counterName, "GPU Time Elapsed") == 0) {
-                perf.off_time_ns = counterOffset;
-                assert(counterDataSize == 8);
-                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
-                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
-            }
-
-            if (perf.dbg)
-                printf("id: %2u, name: %32s, off: %3u, datasize: %u\n",
-                        counterId, counterName, counterOffset, counterDataSize);
-        }
-
-        glCreatePerfQueryINTEL(queryId, &perf.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
-        glBeginPerfQueryINTEL(perf.queryHandle);
+        glBeginPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
         assert(glGetError() == GL_NO_ERROR);
 
         if (perf.dbg)
@@ -393,16 +431,30 @@ main(int argc, char *argv[])
     assert(glGetError() == GL_NO_ERROR);
 
     if (perf.enabled) {
-        glEndPerfQueryINTEL(perf.queryHandle);
+        glEndPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+
+        glEndPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
         assert(glGetError() == GL_NO_ERROR);
 
         uint bytesWritten = 0;
 
-        char *queryData = calloc(perf.dataSize, 1);
+        char *cmb_queryData = malloc(perf.compute_metrics_basic.dataSize);
+        char *ps_queryData = malloc(perf.pipeline_statistics.dataSize);
 
-        glGetPerfQueryDataINTEL(perf.queryHandle, GL_PERFQUERY_WAIT_INTEL,
-                perf.dataSize, queryData, &bytesWritten);
+        glGetPerfQueryDataINTEL(perf.compute_metrics_basic.queryHandle,
+                GL_PERFQUERY_WAIT_INTEL, perf.compute_metrics_basic.dataSize,
+                cmb_queryData, &bytesWritten);
         assert(glGetError() == GL_NO_ERROR);
+        if (bytesWritten != perf.compute_metrics_basic.dataSize)
+            abort();
+
+        glGetPerfQueryDataINTEL(perf.pipeline_statistics.queryHandle,
+                GL_PERFQUERY_WAIT_INTEL, perf.pipeline_statistics.dataSize,
+                ps_queryData, &bytesWritten);
+        assert(glGetError() == GL_NO_ERROR);
+        if (bytesWritten != perf.pipeline_statistics.dataSize)
+            abort();
 
         if (perf.dbg) {
             if (clock_gettime(CLOCK_MONOTONIC, &end))
@@ -412,12 +464,15 @@ main(int argc, char *argv[])
             printf("%lu ns, %lu ms\n", ns, ns/1000000);
         }
 
-        if (bytesWritten != perf.dataSize)
-            abort();
 
-        if (perf.dbg)
-            for (unsigned i = 0; i < perf.dataSize / 8; ++i)
-                printf("%u %lu\n", i * 8, *(uint64_t *)(queryData + i * 8));
+        if (perf.dbg) {
+            printf("CMB:\n");
+            for (unsigned i = 0; i < perf.compute_metrics_basic.dataSize / 8; ++i)
+                printf("%u %lu\n", i * 8, *(uint64_t *)(cmb_queryData + i * 8));
+            printf("PS:\n");
+            for (unsigned i = 0; i < perf.pipeline_statistics.dataSize / 8; ++i)
+                printf("%u %lu\n", i * 8, *(uint64_t *)(ps_queryData + i * 8));
+        }
 
         uint64_t threads = 0;
         uint64_t time_ns = 0;
@@ -425,18 +480,19 @@ main(int argc, char *argv[])
         float thread_occupancy_pct = 0;
         uint64_t cs_invocations = 0;
 
-        if (perf.off_threads)
-            threads = *(uint64_t *)(queryData + perf.off_threads);
+        if (perf.compute_metrics_basic.off_threads)
+            threads = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_threads);
 
-        if (perf.off_time_ns) {
-            time_ns = *(uint64_t *)(queryData + perf.off_time_ns);
+        if (perf.compute_metrics_basic.off_time_ns) {
+            time_ns = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_time_ns);
             time_ms = time_ns / 1000000.0;
         }
 
-        if (perf.off_thread_occupancy_pct)
-            thread_occupancy_pct = *(float *)(queryData + perf.off_thread_occupancy_pct);
+        if (perf.compute_metrics_basic.off_thread_occupancy_pct)
+            thread_occupancy_pct = *(float *)(cmb_queryData + perf.compute_metrics_basic.off_thread_occupancy_pct);
 
-        cs_invocations = 0; // XXX
+        if (perf.pipeline_statistics.off_cs_invocations)
+            cs_invocations = *(uint64_t *)(ps_queryData + perf.pipeline_statistics.off_cs_invocations);
 
         if (perf.show_csv) {
             fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
@@ -454,9 +510,12 @@ main(int argc, char *argv[])
             printf("CS Invocations:        %lu\n", cs_invocations);
         }
 
-        free(queryData);
+        free(cmb_queryData);
+        free(ps_queryData);
 
-        glDeletePerfQueryINTEL(perf.queryHandle);
+        glDeletePerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+        glDeletePerfQueryINTEL(perf.pipeline_statistics.queryHandle);
         assert(glGetError() == GL_NO_ERROR);
     }
 

@@ -8,21 +8,15 @@
 #include <GL/glext.h>
 #include <gbm.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "shared.h"
-
-static int WIDTH;
-static int HEIGHT;
-static int DEPTH;
-
-static int WORKGROUP_SIZE_X;
-static int WORKGROUP_SIZE_Y;
-static int WORKGROUP_SIZE_Z;
 
 int
 main(int argc, char *argv[])
@@ -32,12 +26,38 @@ main(int argc, char *argv[])
         exit(2);
     }
 
-    WIDTH = atoi(argv[3]);
-    HEIGHT = atoi(argv[4]);
-    DEPTH = atoi(argv[5]);
-    WORKGROUP_SIZE_X = atoi(argv[6]);
-    WORKGROUP_SIZE_Y = atoi(argv[7]);
-    WORKGROUP_SIZE_Z = atoi(argv[8]);
+    int WIDTH = atoi(argv[3]);
+    int HEIGHT = atoi(argv[4]);
+    int DEPTH = atoi(argv[5]);
+    int WORKGROUP_SIZE_X = atoi(argv[6]);
+    int WORKGROUP_SIZE_Y = atoi(argv[7]);
+    int WORKGROUP_SIZE_Z = atoi(argv[8]);
+
+    struct {
+        bool enabled;
+        bool show_csv;
+        FILE *statsFile;
+        unsigned queryHandle;
+        unsigned dataSize;
+        unsigned off_threads;
+        unsigned off_thread_occupancy_pct;
+        unsigned off_time_ns;
+        bool dbg;
+    } perf;
+
+    perf.enabled = getenv("PERF_ENABLED") == NULL;
+    if (perf.enabled) {
+        perf.show_csv = getenv("CSV") != NULL;
+
+        if (perf.show_csv) {
+            perf.statsFile = fopen("stats.csv", "w");
+            if (!perf.statsFile) {
+                perror("fopen stats.csv");
+                exit(2);
+            }
+            fprintf(perf.statsFile, "x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+        }
+    }
 
     if (WORKGROUP_SIZE_X == 0 || WORKGROUP_SIZE_Y == 0 || WORKGROUP_SIZE_Z == 0||
             WIDTH == 0 || HEIGHT == 0 || DEPTH == 0)
@@ -274,6 +294,91 @@ main(int argc, char *argv[])
         exit(2);
     }
 
+    struct timespec start, end;
+
+    if (perf.enabled) {
+        // perf.dbg = true;
+        unsigned queryId;
+        char qname[] = "Compute Metrics Basic Gen9";
+        glGetPerfQueryIdByNameINTEL(qname, &queryId);
+        if (glGetError() != GL_NO_ERROR) {
+            fprintf(stderr,
+                    "Query %s not found. Disable performance queries with PERF_ENABLED=0\n",
+                    qname);
+            assert(0);
+        }
+        if (perf.dbg)
+            printf("queryId: %u\n", queryId);
+
+        char queryName[4096];
+        unsigned dataSize, noCounters, noInstances, capsMask;
+        glGetPerfQueryInfoINTEL(queryId, sizeof(queryName), queryName, &dataSize,
+                                &noCounters, &noInstances, &capsMask);
+        assert(glGetError() == GL_NO_ERROR);
+
+        if (perf.dbg)
+            printf("query name: %s, data size: %u\n", queryName, dataSize);
+        perf.dataSize = dataSize;
+
+        perf.off_thread_occupancy_pct = 0;
+        perf.off_threads = 0;
+        perf.off_time_ns = 0;
+
+        for (int counterId = 1; counterId <= noCounters; counterId++) {
+            uint counterOffset;
+            uint counterDataSize;
+            uint counterTypeEnum;
+            uint counterDataTypeEnum;
+            uint64_t rawCounterMaxValue;
+            char counterName[32];
+            char counterDesc[256];
+
+            glGetPerfCounterInfoINTEL(
+                    queryId,
+                    counterId,
+                    sizeof(counterName),
+                    counterName,
+                    sizeof(counterDesc),
+                    counterDesc,
+                    &counterOffset,
+                    &counterDataSize,
+                    &counterTypeEnum,
+                    &counterDataTypeEnum,
+                    &rawCounterMaxValue);
+            assert(glGetError() == GL_NO_ERROR);
+
+            if (strcmp(counterName, "CS Threads Dispatched") == 0) {
+                perf.off_threads = counterOffset;
+                assert(counterDataSize == 8);
+                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
+                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_EVENT_INTEL);
+            } else if (strcmp(counterName, "EU Thread Occupancy") == 0) {
+                perf.off_thread_occupancy_pct = counterOffset;
+                assert(counterDataSize == 4);
+                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_FLOAT_INTEL);
+                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
+            } else if (strcmp(counterName, "GPU Time Elapsed") == 0) {
+                perf.off_time_ns = counterOffset;
+                assert(counterDataSize == 8);
+                assert(counterDataTypeEnum == GL_PERFQUERY_COUNTER_DATA_UINT64_INTEL);
+                assert(counterTypeEnum == GL_PERFQUERY_COUNTER_RAW_INTEL);
+            }
+
+            if (perf.dbg)
+                printf("id: %2u, name: %32s, off: %3u, datasize: %u\n",
+                        counterId, counterName, counterOffset, counterDataSize);
+        }
+
+        glCreatePerfQueryINTEL(queryId, &perf.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+        glBeginPerfQueryINTEL(perf.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+
+        if (perf.dbg)
+            if (clock_gettime(CLOCK_MONOTONIC, &start))
+                abort();
+    }
+
     glDispatchCompute(
             (uint32_t)ceil(WIDTH / (float)WORKGROUP_SIZE_X),
             (uint32_t)ceil(HEIGHT / (float)WORKGROUP_SIZE_Y),
@@ -286,6 +391,74 @@ main(int argc, char *argv[])
 
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
     assert(glGetError() == GL_NO_ERROR);
+
+    if (perf.enabled) {
+        glEndPerfQueryINTEL(perf.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+
+        uint bytesWritten = 0;
+
+        char *queryData = calloc(perf.dataSize, 1);
+
+        glGetPerfQueryDataINTEL(perf.queryHandle, GL_PERFQUERY_WAIT_INTEL,
+                perf.dataSize, queryData, &bytesWritten);
+        assert(glGetError() == GL_NO_ERROR);
+
+        if (perf.dbg) {
+            if (clock_gettime(CLOCK_MONOTONIC, &end))
+                abort();
+            uint64_t ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
+                    end.tv_nsec - start.tv_nsec;
+            printf("%lu ns, %lu ms\n", ns, ns/1000000);
+        }
+
+        if (bytesWritten != perf.dataSize)
+            abort();
+
+        if (perf.dbg)
+            for (unsigned i = 0; i < perf.dataSize / 8; ++i)
+                printf("%u %lu\n", i * 8, *(uint64_t *)(queryData + i * 8));
+
+        uint64_t threads = 0;
+        uint64_t time_ns = 0;
+        float time_ms = 0;
+        float thread_occupancy_pct = 0;
+        uint64_t cs_invocations = 0;
+
+        if (perf.off_threads)
+            threads = *(uint64_t *)(queryData + perf.off_threads);
+
+        if (perf.off_time_ns) {
+            time_ns = *(uint64_t *)(queryData + perf.off_time_ns);
+            time_ms = time_ns / 1000000.0;
+        }
+
+        if (perf.off_thread_occupancy_pct)
+            thread_occupancy_pct = *(float *)(queryData + perf.off_thread_occupancy_pct);
+
+        cs_invocations = 0; // XXX
+
+        if (perf.show_csv) {
+            fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+            fprintf(perf.statsFile, "%d,", (int)time_ms);
+            fprintf(perf.statsFile, "%lu,", threads);
+            fprintf(perf.statsFile, "%lu,", cs_invocations);
+            fprintf(perf.statsFile, "%lu,", threads ? cs_invocations / threads : 0);
+            fprintf(perf.statsFile, "%d\n", (int)thread_occupancy_pct);
+        } else {
+            printf("EU Thread Occupancy:   %f %%\n", thread_occupancy_pct);
+            printf("CS Threads Dispatched: %lu\n", threads);
+            if (0)
+                printf("GPU Time Elapsed:      %lu ns\n", time_ns);
+            printf("GPU Time Elapsed:      %f ms\n", time_ms);
+            printf("CS Invocations:        %lu\n", cs_invocations);
+        }
+
+        free(queryData);
+
+        glDeletePerfQueryINTEL(perf.queryHandle);
+        assert(glGetError() == GL_NO_ERROR);
+    }
 
     struct Pixel *result = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
     if (!result) {

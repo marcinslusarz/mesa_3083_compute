@@ -4,7 +4,13 @@
 #extension GL_KHR_shader_subgroup_basic : enable
 #endif
 
+#if USE_VARIABLE_GROUP_SIZE
+#extension GL_ARB_compute_variable_group_size: enable
+layout(local_size_variable) in;
+#else
 layout (local_size_x = WORKGROUP_SIZE_X, local_size_y = WORKGROUP_SIZE_Y, local_size_z = WORKGROUP_SIZE_Z) in;
+#endif
+
 
 struct Pixel{
   vec4 value;
@@ -42,7 +48,12 @@ void main() {
 
   uint LIInd = gl_LocalInvocationIndex;
   uvec3 LIID = gl_LocalInvocationID;
-  uvec3 WGS = gl_WorkGroupSize;
+  uvec3 WGS;
+#if USE_VARIABLE_GROUP_SIZE
+  WGS = gl_LocalGroupSizeARB;
+#else
+  WGS = gl_WorkGroupSize;
+#endif
 
   uvec3 GIID = gl_GlobalInvocationID;
 

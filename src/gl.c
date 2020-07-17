@@ -160,6 +160,9 @@ main(int argc, char *argv[])
             WIDTH == 0 || HEIGHT == 0 || DEPTH == 0)
         abort();
 
+    const char *tmp = getenv("USE_VARIABLE_GROUP_SIZE");
+    bool variable_group_size = tmp && atoi(tmp);
+
     int fd = open(argv[1], O_RDWR);
     if (fd < 0) {
         perror("open");
@@ -304,6 +307,11 @@ main(int argc, char *argv[])
         *(pos + 15) = ' ';
     }
 
+    while ((pos = strstr(shader_src, "USE_VARIABLE_GROUP_SIZE")) != NULL) {
+        sprintf(pos, "%-22d", variable_group_size ? 1 : 0);
+        *(pos + 22) = ' ';
+    }
+
     // mesa doesn't support KHR_shader_subgroup in GL
     if (0) {
         while ((pos = strstr(shader_src, "USE_SUBGROUPS")) != NULL) {
@@ -417,10 +425,16 @@ main(int argc, char *argv[])
                 abort();
     }
 
-    glDispatchCompute(
-            (uint32_t)ceil(WIDTH / (float)WORKGROUP_SIZE_X),
-            (uint32_t)ceil(HEIGHT / (float)WORKGROUP_SIZE_Y),
-            (uint32_t)ceil(DEPTH / (float)WORKGROUP_SIZE_Z));
+    GLuint num_groups_x = (GLuint)ceil(WIDTH / (float)WORKGROUP_SIZE_X);
+    GLuint num_groups_y = (GLuint)ceil(HEIGHT / (float)WORKGROUP_SIZE_Y);
+    GLuint num_groups_z = (GLuint)ceil(DEPTH / (float)WORKGROUP_SIZE_Z);
+
+    if (variable_group_size) {
+        glDispatchComputeGroupSizeARB(num_groups_x, num_groups_y, num_groups_z,
+                WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+    } else {
+        glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
+    }
     err = glGetError();
     if (err != GL_NO_ERROR) {
         fprintf(stderr, "glDispatchCompute: 0x%x\n", err);

@@ -414,11 +414,23 @@ main(int argc, char *argv[])
         query_query(qname0, false);
         query_query(qname1, true);
 
-        glBeginPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
+        int err;
 
-        glBeginPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
+        do {
+            glBeginPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
+            err = glGetError();
+            if (err == GL_INVALID_OPERATION)
+                usleep(10000);
+        } while (err == GL_INVALID_OPERATION);
+        assert(err == GL_NO_ERROR);
+
+        do {
+            glBeginPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
+            err = glGetError();
+            if (err == GL_INVALID_OPERATION)
+                usleep(10000);
+        } while (err == GL_INVALID_OPERATION);
+        assert(err == GL_NO_ERROR);
 
         if (perf.dbg)
             if (clock_gettime(CLOCK_MONOTONIC, &start))

@@ -148,7 +148,7 @@ public:
                 perror("fopen stats.csv");
                 exit(2);
             }
-            fprintf(statsFile, "x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+            fprintf(statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
         }
 
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
@@ -266,7 +266,7 @@ public:
 
             if (perf.show_csv) {
                 fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
-                fprintf(statsFile, "%d,", (int)(recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0));
+                fprintf(statsFile, "%lu,", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
                 fprintf(statsFile, "%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
                 fprintf(statsFile, "%lu,", recordedCountersPipeline[0]);
                 fprintf(statsFile, "%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
@@ -274,9 +274,7 @@ public:
             } else {
                 printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
                 printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                if (0)
-                    printf("GPU Time Elapsed:      %lu ns\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
-                printf("GPU Time Elapsed:      %f ms\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64/1000000.0);
+                printf("GPU Time Elapsed:      %lu ns\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
                 printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
             }
 

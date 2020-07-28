@@ -152,7 +152,7 @@ main(int argc, char *argv[])
                 perror("fopen stats.csv");
                 exit(2);
             }
-            fprintf(perf.statsFile, "x:int,y:int,z:int,time_ms:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+            fprintf(perf.statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
         }
     }
 
@@ -502,17 +502,14 @@ main(int argc, char *argv[])
 
         uint64_t threads = 0;
         uint64_t time_ns = 0;
-        float time_ms = 0;
         float thread_occupancy_pct = 0;
         uint64_t cs_invocations = 0;
 
         if (perf.compute_metrics_basic.off_threads)
             threads = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_threads);
 
-        if (perf.compute_metrics_basic.off_time_ns) {
+        if (perf.compute_metrics_basic.off_time_ns)
             time_ns = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_time_ns);
-            time_ms = time_ns / 1000000.0;
-        }
 
         if (perf.compute_metrics_basic.off_thread_occupancy_pct)
             thread_occupancy_pct = *(float *)(cmb_queryData + perf.compute_metrics_basic.off_thread_occupancy_pct);
@@ -522,7 +519,7 @@ main(int argc, char *argv[])
 
         if (perf.show_csv) {
             fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
-            fprintf(perf.statsFile, "%d,", (int)time_ms);
+            fprintf(perf.statsFile, "%lu,", time_ns);
             fprintf(perf.statsFile, "%lu,", threads);
             fprintf(perf.statsFile, "%lu,", cs_invocations);
             fprintf(perf.statsFile, "%lu,", threads ? cs_invocations / threads : 0);
@@ -532,7 +529,7 @@ main(int argc, char *argv[])
             printf("CS Threads Dispatched: %lu\n", threads);
             if (0)
                 printf("GPU Time Elapsed:      %lu ns\n", time_ns);
-            printf("GPU Time Elapsed:      %f ms\n", time_ms);
+            printf("GPU Time Elapsed:      %f ns\n", time_ns);
             printf("CS Invocations:        %lu\n", cs_invocations);
         }
 

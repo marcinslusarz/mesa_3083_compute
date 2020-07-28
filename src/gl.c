@@ -454,6 +454,9 @@ main(int argc, char *argv[])
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
     assert(glGetError() == GL_NO_ERROR);
 
+    glFinish();
+    assert(glGetError() == GL_NO_ERROR);
+
     if (perf.enabled) {
         if (clock_gettime(CLOCK_MONOTONIC, &end))
             abort();

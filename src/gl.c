@@ -152,7 +152,7 @@ main(int argc, char *argv[])
                 perror("fopen stats.csv");
                 exit(2);
             }
-            fprintf(perf.statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+            fprintf(perf.statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int,cpu_time_ns:int\n");
         }
     }
 
@@ -431,9 +431,8 @@ main(int argc, char *argv[])
         } while (err == GL_INVALID_OPERATION);
         assert(err == GL_NO_ERROR);
 
-        if (perf.dbg)
-            if (clock_gettime(CLOCK_MONOTONIC, &start))
-                abort();
+        if (clock_gettime(CLOCK_MONOTONIC, &start))
+            abort();
     }
 
     GLuint num_groups_x = (GLuint)ceil(WIDTH / (float)WORKGROUP_SIZE_X);
@@ -456,6 +455,9 @@ main(int argc, char *argv[])
     assert(glGetError() == GL_NO_ERROR);
 
     if (perf.enabled) {
+        if (clock_gettime(CLOCK_MONOTONIC, &end))
+            abort();
+
         glEndPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
         assert(glGetError() == GL_NO_ERROR);
 
@@ -480,15 +482,6 @@ main(int argc, char *argv[])
         assert(glGetError() == GL_NO_ERROR);
         if (bytesWritten != perf.pipeline_statistics.dataSize)
             abort();
-
-        if (perf.dbg) {
-            if (clock_gettime(CLOCK_MONOTONIC, &end))
-                abort();
-            uint64_t ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
-                    end.tv_nsec - start.tv_nsec;
-            printf("%lu ns, %lu ms\n", ns, ns/1000000);
-        }
-
 
         if (perf.dbg) {
             printf("CMB:\n");
@@ -516,20 +509,23 @@ main(int argc, char *argv[])
         if (perf.pipeline_statistics.off_cs_invocations)
             cs_invocations = *(uint64_t *)(ps_queryData + perf.pipeline_statistics.off_cs_invocations);
 
+        uint64_t cpu_time_ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
+                end.tv_nsec - start.tv_nsec;
+
         if (perf.show_csv) {
             fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
             fprintf(perf.statsFile, "%lu,", time_ns);
             fprintf(perf.statsFile, "%lu,", threads);
             fprintf(perf.statsFile, "%lu,", cs_invocations);
             fprintf(perf.statsFile, "%lu,", threads ? cs_invocations / threads : 0);
-            fprintf(perf.statsFile, "%d\n", (int)thread_occupancy_pct);
+            fprintf(perf.statsFile, "%d,", (int)thread_occupancy_pct);
+            fprintf(perf.statsFile, "%lu\n", cpu_time_ns);
         } else {
             printf("EU Thread Occupancy:   %f %%\n", thread_occupancy_pct);
             printf("CS Threads Dispatched: %lu\n", threads);
-            if (0)
-                printf("GPU Time Elapsed:      %lu ns\n", time_ns);
-            printf("GPU Time Elapsed:      %f ns\n", time_ns);
+            printf("GPU Time Elapsed:      %lu ns\n", time_ns);
             printf("CS Invocations:        %lu\n", cs_invocations);
+            printf("CPU Time Elapsed:      %lu ns\n", cpu_time_ns);
         }
 
         free(cmb_queryData);

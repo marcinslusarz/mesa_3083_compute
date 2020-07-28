@@ -230,7 +230,6 @@ main(int argc, char *argv[])
     }
 
     size_t bufferSize = sizeof(struct Pixel) * WIDTH * HEIGHT * DEPTH;
-    struct Pixel *buffer = NULL;//malloc(bufferSize);
     GLuint ssbo;
     glGenBuffers(1, &ssbo);
     assert(glGetError() == GL_NO_ERROR);
@@ -238,7 +237,7 @@ main(int argc, char *argv[])
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
     assert(glGetError() == GL_NO_ERROR);
 
-    glBufferData(GL_SHADER_STORAGE_BUFFER, bufferSize, buffer, GL_STATIC_READ);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, bufferSize, NULL, GL_STATIC_READ);
     assert(glGetError() == GL_NO_ERROR);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);

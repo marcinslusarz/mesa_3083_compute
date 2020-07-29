@@ -141,10 +141,13 @@ main(int argc, char *argv[])
     int WORKGROUP_SIZE_X = atoi(argv[6]);
     int WORKGROUP_SIZE_Y = atoi(argv[7]);
     int WORKGROUP_SIZE_Z = atoi(argv[8]);
+    const char *tmp;
 
-    perf.enabled = getenv("PERF_ENABLED") == NULL;
+    tmp = getenv("PERF_ENABLED");
+    perf.enabled = tmp == NULL || atoi(tmp) > 0;
     if (perf.enabled) {
-        perf.show_csv = getenv("CSV") != NULL;
+        tmp = getenv("CSV");
+        perf.show_csv = tmp != NULL && atoi(tmp) > 0;
 
         if (perf.show_csv) {
             perf.statsFile = fopen("stats.csv", "w");
@@ -160,8 +163,8 @@ main(int argc, char *argv[])
             WIDTH == 0 || HEIGHT == 0 || DEPTH == 0)
         abort();
 
-    const char *tmp = getenv("USE_VARIABLE_GROUP_SIZE");
-    bool variable_group_size = tmp && atoi(tmp);
+    tmp = getenv("USE_VARIABLE_GROUP_SIZE");
+    bool variable_group_size = tmp != NULL && atoi(tmp) > 0;
 
     int fd = open(argv[1], O_RDWR);
     if (fd < 0) {

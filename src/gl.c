@@ -18,6 +18,9 @@
 
 #include "shared.h"
 
+#define WARMUP 5
+#define AVERAGE 10
+
 struct {
     bool enabled;
     bool show_csv;
@@ -401,146 +404,172 @@ main(int argc, char *argv[])
         exit(2);
     }
 
-    struct timespec start, end;
-
+    unsigned warmup, average;
     if (perf.enabled) {
-        // perf.dbg = true;
-
-        perf.compute_metrics_basic.off_thread_occupancy_pct = 0;
-        perf.compute_metrics_basic.off_threads = 0;
-        perf.compute_metrics_basic.off_time_ns = 0;
-        perf.pipeline_statistics.off_cs_invocations = 0;
-
-        char qname0[] = "Compute Metrics Basic Gen9";
-        char qname1[] = "Pipeline Statistics Registers";
-        query_query(qname0, false);
-        query_query(qname1, true);
-
-        int err;
-
-        do {
-            glBeginPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
-            err = glGetError();
-            if (err == GL_INVALID_OPERATION)
-                usleep(10000);
-        } while (err == GL_INVALID_OPERATION);
-        assert(err == GL_NO_ERROR);
-
-        do {
-            glBeginPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
-            err = glGetError();
-            if (err == GL_INVALID_OPERATION)
-                usleep(10000);
-        } while (err == GL_INVALID_OPERATION);
-        assert(err == GL_NO_ERROR);
-
-        if (clock_gettime(CLOCK_MONOTONIC, &start))
-            abort();
-    }
-
-    GLuint num_groups_x = (GLuint)ceil(WIDTH / (float)WORKGROUP_SIZE_X);
-    GLuint num_groups_y = (GLuint)ceil(HEIGHT / (float)WORKGROUP_SIZE_Y);
-    GLuint num_groups_z = (GLuint)ceil(DEPTH / (float)WORKGROUP_SIZE_Z);
-
-    if (variable_group_size) {
-        glDispatchComputeGroupSizeARB(num_groups_x, num_groups_y, num_groups_z,
-                WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+        warmup = WARMUP;
+        average = AVERAGE;
     } else {
-        glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
+        warmup = 0;
+        average = 1;
     }
-    err = glGetError();
-    if (err != GL_NO_ERROR) {
-        fprintf(stderr, "glDispatchCompute: 0x%x\n", err);
-        exit(2);
+    uint64_t overall_cpu_time = 0, overall_gpu_time = 0;
+
+    for (unsigned i = 0; i < warmup + average; ++i) {
+        struct timespec start, end;
+
+        if (perf.enabled) {
+            // perf.dbg = true;
+
+            perf.compute_metrics_basic.off_thread_occupancy_pct = 0;
+            perf.compute_metrics_basic.off_threads = 0;
+            perf.compute_metrics_basic.off_time_ns = 0;
+            perf.pipeline_statistics.off_cs_invocations = 0;
+
+            char qname0[] = "Compute Metrics Basic Gen9";
+            char qname1[] = "Pipeline Statistics Registers";
+            query_query(qname0, false);
+            query_query(qname1, true);
+
+            int err;
+
+            do {
+                glBeginPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
+                err = glGetError();
+                if (err == GL_INVALID_OPERATION)
+                    usleep(10000);
+            } while (err == GL_INVALID_OPERATION);
+            assert(err == GL_NO_ERROR);
+
+            do {
+                glBeginPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
+                err = glGetError();
+                if (err == GL_INVALID_OPERATION)
+                    usleep(10000);
+            } while (err == GL_INVALID_OPERATION);
+            assert(err == GL_NO_ERROR);
+
+            if (clock_gettime(CLOCK_MONOTONIC, &start))
+                abort();
+        }
+
+        GLuint num_groups_x = (GLuint)ceil(WIDTH / (float)WORKGROUP_SIZE_X);
+        GLuint num_groups_y = (GLuint)ceil(HEIGHT / (float)WORKGROUP_SIZE_Y);
+        GLuint num_groups_z = (GLuint)ceil(DEPTH / (float)WORKGROUP_SIZE_Z);
+
+        if (variable_group_size) {
+            glDispatchComputeGroupSizeARB(num_groups_x, num_groups_y, num_groups_z,
+                    WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+        } else {
+            glDispatchCompute(num_groups_x, num_groups_y, num_groups_z);
+        }
+        err = glGetError();
+        if (err != GL_NO_ERROR) {
+            fprintf(stderr, "glDispatchCompute: 0x%x\n", err);
+            exit(2);
+        }
+
+        glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        assert(glGetError() == GL_NO_ERROR);
+
+        glFinish();
+        assert(glGetError() == GL_NO_ERROR);
+
+        if (perf.enabled) {
+            if (clock_gettime(CLOCK_MONOTONIC, &end))
+                abort();
+
+            glEndPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
+            assert(glGetError() == GL_NO_ERROR);
+
+            glEndPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
+            assert(glGetError() == GL_NO_ERROR);
+
+            uint bytesWritten = 0;
+
+            char *cmb_queryData = malloc(perf.compute_metrics_basic.dataSize);
+            char *ps_queryData = malloc(perf.pipeline_statistics.dataSize);
+
+            glGetPerfQueryDataINTEL(perf.compute_metrics_basic.queryHandle,
+                    GL_PERFQUERY_WAIT_INTEL, perf.compute_metrics_basic.dataSize,
+                    cmb_queryData, &bytesWritten);
+            assert(glGetError() == GL_NO_ERROR);
+            if (bytesWritten != perf.compute_metrics_basic.dataSize)
+                abort();
+
+            glGetPerfQueryDataINTEL(perf.pipeline_statistics.queryHandle,
+                    GL_PERFQUERY_WAIT_INTEL, perf.pipeline_statistics.dataSize,
+                    ps_queryData, &bytesWritten);
+            assert(glGetError() == GL_NO_ERROR);
+            if (bytesWritten != perf.pipeline_statistics.dataSize)
+                abort();
+
+            if (perf.dbg) {
+                printf("CMB:\n");
+                for (unsigned i = 0; i < perf.compute_metrics_basic.dataSize / 8; ++i)
+                    printf("%u %lu\n", i * 8, *(uint64_t *)(cmb_queryData + i * 8));
+                printf("PS:\n");
+                for (unsigned i = 0; i < perf.pipeline_statistics.dataSize / 8; ++i)
+                    printf("%u %lu\n", i * 8, *(uint64_t *)(ps_queryData + i * 8));
+            }
+
+            uint64_t threads = 0;
+            uint64_t gpu_time_ns = 0;
+            float thread_occupancy_pct = 0;
+            uint64_t cs_invocations = 0;
+
+            if (perf.compute_metrics_basic.off_threads)
+                threads = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_threads);
+
+            if (perf.compute_metrics_basic.off_time_ns)
+                gpu_time_ns = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_time_ns);
+
+            if (perf.compute_metrics_basic.off_thread_occupancy_pct)
+                thread_occupancy_pct = *(float *)(cmb_queryData + perf.compute_metrics_basic.off_thread_occupancy_pct);
+
+            if (perf.pipeline_statistics.off_cs_invocations)
+                cs_invocations = *(uint64_t *)(ps_queryData + perf.pipeline_statistics.off_cs_invocations);
+
+            uint64_t cpu_time_ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
+                    end.tv_nsec - start.tv_nsec;
+
+            if (i >= warmup) {
+                if (perf.show_csv) {
+                    fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+                    fprintf(perf.statsFile, "%lu,", gpu_time_ns);
+                    fprintf(perf.statsFile, "%lu,", threads);
+                    fprintf(perf.statsFile, "%lu,", cs_invocations);
+                    fprintf(perf.statsFile, "%lu,", threads ? cs_invocations / threads : 0);
+                    fprintf(perf.statsFile, "%d,", (int)thread_occupancy_pct);
+                    fprintf(perf.statsFile, "%lu\n", cpu_time_ns);
+                } else {
+                    printf("EU Thread Occupancy:   %f %%\n", thread_occupancy_pct);
+                    printf("CS Threads Dispatched: %lu\n", threads);
+                    printf("GPU Time Elapsed:      %lu ns\n", gpu_time_ns);
+                    printf("CS Invocations:        %lu\n", cs_invocations);
+                    printf("CPU Time Elapsed:      %lu ns\n", cpu_time_ns);
+                }
+
+                overall_cpu_time += cpu_time_ns;
+                overall_gpu_time += gpu_time_ns;
+            }
+
+            free(cmb_queryData);
+            free(ps_queryData);
+
+            glDeletePerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
+            assert(glGetError() == GL_NO_ERROR);
+            glDeletePerfQueryINTEL(perf.pipeline_statistics.queryHandle);
+            assert(glGetError() == GL_NO_ERROR);
+        }
     }
-
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
-    assert(glGetError() == GL_NO_ERROR);
-
-    glFinish();
-    assert(glGetError() == GL_NO_ERROR);
 
     if (perf.enabled) {
-        if (clock_gettime(CLOCK_MONOTONIC, &end))
-            abort();
-
-        glEndPerfQueryINTEL(perf.pipeline_statistics.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
-
-        glEndPerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
-
-        uint bytesWritten = 0;
-
-        char *cmb_queryData = malloc(perf.compute_metrics_basic.dataSize);
-        char *ps_queryData = malloc(perf.pipeline_statistics.dataSize);
-
-        glGetPerfQueryDataINTEL(perf.compute_metrics_basic.queryHandle,
-                GL_PERFQUERY_WAIT_INTEL, perf.compute_metrics_basic.dataSize,
-                cmb_queryData, &bytesWritten);
-        assert(glGetError() == GL_NO_ERROR);
-        if (bytesWritten != perf.compute_metrics_basic.dataSize)
-            abort();
-
-        glGetPerfQueryDataINTEL(perf.pipeline_statistics.queryHandle,
-                GL_PERFQUERY_WAIT_INTEL, perf.pipeline_statistics.dataSize,
-                ps_queryData, &bytesWritten);
-        assert(glGetError() == GL_NO_ERROR);
-        if (bytesWritten != perf.pipeline_statistics.dataSize)
-            abort();
-
-        if (perf.dbg) {
-            printf("CMB:\n");
-            for (unsigned i = 0; i < perf.compute_metrics_basic.dataSize / 8; ++i)
-                printf("%u %lu\n", i * 8, *(uint64_t *)(cmb_queryData + i * 8));
-            printf("PS:\n");
-            for (unsigned i = 0; i < perf.pipeline_statistics.dataSize / 8; ++i)
-                printf("%u %lu\n", i * 8, *(uint64_t *)(ps_queryData + i * 8));
-        }
-
-        uint64_t threads = 0;
-        uint64_t time_ns = 0;
-        float thread_occupancy_pct = 0;
-        uint64_t cs_invocations = 0;
-
-        if (perf.compute_metrics_basic.off_threads)
-            threads = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_threads);
-
-        if (perf.compute_metrics_basic.off_time_ns)
-            time_ns = *(uint64_t *)(cmb_queryData + perf.compute_metrics_basic.off_time_ns);
-
-        if (perf.compute_metrics_basic.off_thread_occupancy_pct)
-            thread_occupancy_pct = *(float *)(cmb_queryData + perf.compute_metrics_basic.off_thread_occupancy_pct);
-
-        if (perf.pipeline_statistics.off_cs_invocations)
-            cs_invocations = *(uint64_t *)(ps_queryData + perf.pipeline_statistics.off_cs_invocations);
-
-        uint64_t cpu_time_ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
-                end.tv_nsec - start.tv_nsec;
-
         if (perf.show_csv) {
-            fprintf(perf.statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
-            fprintf(perf.statsFile, "%lu,", time_ns);
-            fprintf(perf.statsFile, "%lu,", threads);
-            fprintf(perf.statsFile, "%lu,", cs_invocations);
-            fprintf(perf.statsFile, "%lu,", threads ? cs_invocations / threads : 0);
-            fprintf(perf.statsFile, "%d,", (int)thread_occupancy_pct);
-            fprintf(perf.statsFile, "%lu\n", cpu_time_ns);
+            // taking average is on the user's side
         } else {
-            printf("EU Thread Occupancy:   %f %%\n", thread_occupancy_pct);
-            printf("CS Threads Dispatched: %lu\n", threads);
-            printf("GPU Time Elapsed:      %lu ns\n", time_ns);
-            printf("CS Invocations:        %lu\n", cs_invocations);
-            printf("CPU Time Elapsed:      %lu ns\n", cpu_time_ns);
+            printf("Average GPU Time Elapsed:      %lu ns\n", overall_gpu_time / average);
+            printf("Average CPU Time Elapsed:      %lu ns\n", overall_cpu_time / average);
         }
-
-        free(cmb_queryData);
-        free(ps_queryData);
-
-        glDeletePerfQueryINTEL(perf.compute_metrics_basic.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
-        glDeletePerfQueryINTEL(perf.pipeline_statistics.queryHandle);
-        assert(glGetError() == GL_NO_ERROR);
     }
 
     struct Pixel *result = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);

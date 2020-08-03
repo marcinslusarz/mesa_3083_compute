@@ -406,8 +406,17 @@ main(int argc, char *argv[])
 
     unsigned warmup, average;
     if (perf.enabled) {
-        warmup = WARMUP;
-        average = AVERAGE;
+        const char *env = getenv("WARMUP");
+        if (env)
+            warmup = atoi(env);
+        else
+            warmup = WARMUP;
+
+        env = getenv("AVERAGE");
+        if (env)
+            average = atoi(env);
+        else
+            average = AVERAGE;
     } else {
         warmup = 0;
         average = 1;

@@ -138,8 +138,14 @@ private:
 
 public:
     void run() {
-        perf.enabled = getenv("PERF_ENABLED") == NULL;
-        perf.show_csv = getenv("CSV") != NULL;
+        const char *tmp;
+
+        tmp = getenv("PERF_ENABLED");
+        perf.enabled = tmp == NULL || atoi(tmp) > 0;
+
+        tmp = getenv("CSV");
+        perf.show_csv = tmp != NULL && atoi(tmp) > 0;
+
         FILE *statsFile = NULL;
 
         if (perf.enabled && perf.show_csv) {

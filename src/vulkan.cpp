@@ -25,6 +25,9 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+#define WARMUP 5
+#define AVERAGE 10
+
 // Used for validating return values of Vulkan API calls.
 #define VK_CHECK_RESULT(f) 																				\
 {																										\
@@ -154,7 +157,7 @@ public:
                 perror("fopen stats.csv");
                 exit(2);
             }
-            fprintf(statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int\n");
+            fprintf(statsFile, "x:int,y:int,z:int,time_ns:int,threads:int,invocations:int,simd:int,thread_occupancy_pct:int,cpu_time_ns:int\n");
         }
 
         RENDERDOC_API_1_4_1 *rdoc_api = NULL;
@@ -205,18 +208,117 @@ public:
             createResetCommandBuffer();
         createCommandBuffer();
 
+        unsigned warmup, average;
         if (perf.enabled) {
-            // Finally, run the recorded command buffer.
-            for (uint32_t counterPass = 0; counterPass < perf.numPasses; counterPass++) {
-              VkPerformanceQuerySubmitInfoKHR performanceQuerySubmitInfo;
-              performanceQuerySubmitInfo.sType = VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR;
-              performanceQuerySubmitInfo.pNext = NULL;
-              performanceQuerySubmitInfo.counterPassIndex = counterPass;
+            const char *env = getenv("WARMUP");
+            if (env)
+                warmup = atoi(env);
+            else
+                warmup = WARMUP;
 
-              runCommandBuffer(&commandBuffers[0], NULL);
-              runCommandBuffer(&commandBuffers[1], &performanceQuerySubmitInfo);
+            env = getenv("AVERAGE");
+            if (env)
+                average = atoi(env);
+            else
+                average = AVERAGE;
+        } else {
+            warmup = 0;
+            average = 1;
+        }
+        uint64_t overall_cpu_time = 0, overall_gpu_time = 0;
+
+        for (unsigned i = 0; i < warmup + average; ++i) {
+            if (perf.enabled) {
+                struct timespec start, end;
+                if (clock_gettime(CLOCK_MONOTONIC, &start))
+                    abort();
+
+                // Finally, run the recorded command buffer.
+                for (uint32_t counterPass = 0; counterPass < perf.numPasses; counterPass++) {
+                  VkPerformanceQuerySubmitInfoKHR performanceQuerySubmitInfo;
+                  performanceQuerySubmitInfo.sType = VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR;
+                  performanceQuerySubmitInfo.pNext = NULL;
+                  performanceQuerySubmitInfo.counterPassIndex = counterPass;
+
+                  runCommandBuffer(&commandBuffers[0], NULL);
+                  runCommandBuffer(&commandBuffers[1], &performanceQuerySubmitInfo);
+                }
+
+                if (clock_gettime(CLOCK_MONOTONIC, &end))
+                    abort();
+
+                size_t cntrs = perf.selectedCounters.size();
+                std::vector<VkPerformanceCounterResultKHR> recordedCounters(cntrs);
+
+                VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolKHR, 0, 1,
+                        sizeof(VkPerformanceCounterResultKHR) * cntrs,
+                        recordedCounters.data(),
+                        sizeof(VkPerformanceCounterResultKHR),
+                        0));
+                if (0) {
+                    int i = 0;
+                    for (auto c : recordedCounters) {
+                        printf("counter: %d, value: ", i);
+                        switch(perf.storages[i]) {
+                        case VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR:
+                            printf("%d\n", c.int32);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR:
+                            printf("%u\n", c.uint32);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR:
+                            printf("%ld\n", c.int64);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR:
+                            printf("%lu\n", c.uint64);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR:
+                            printf("%f\n", c.float32);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:
+                            printf("%g\n", c.float64);
+                            break;
+                        case VK_PERFORMANCE_COUNTER_STORAGE_MAX_ENUM_KHR:
+                            assert(0);
+                            break;
+                        }
+                        i++;
+                    }
+                }
+
+                std::vector<uint64_t> recordedCountersPipeline(1);
+                VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolPipeline, 0, 1,
+                        sizeof(uint64_t) * 1,
+                        recordedCountersPipeline.data(),
+                        sizeof(uint64_t),
+                        0));
+
+                uint64_t cpu_time_ns = 1000ULL * 1000 * 1000 * (end.tv_sec - start.tv_sec) +
+                        end.tv_nsec - start.tv_nsec;
+
+                if (i >= warmup) {
+                    if (perf.show_csv) {
+                        fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
+                        fprintf(statsFile, "%lu,", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
+                        fprintf(statsFile, "%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                        fprintf(statsFile, "%lu,", recordedCountersPipeline[0]);
+                        fprintf(statsFile, "%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                        fprintf(statsFile, "%d,", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
+                        fprintf(statsFile, "%lu\n", cpu_time_ns);
+                    } else {
+                        printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
+                        printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
+                        printf("GPU Time Elapsed:      %lu ns\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
+                        printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
+                        printf("CPU Time Elapsed:      %lu ns\n", cpu_time_ns);
+                    }
+                }
+            } else {
+                runCommandBuffer(&commandBuffers[1], NULL);
             }
+        }
 
+        if (perf.enabled) {
             PFN_vkReleaseProfilingLockKHR vkReleaseProfilingLockKHR =
                         (PFN_vkReleaseProfilingLockKHR)
                         vkGetInstanceProcAddr(instance, "vkReleaseProfilingLockKHR");
@@ -224,68 +326,12 @@ public:
 
             vkReleaseProfilingLockKHR(device);
 
-            size_t cntrs = perf.selectedCounters.size();
-            std::vector<VkPerformanceCounterResultKHR> recordedCounters(cntrs);
-
-            VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolKHR, 0, 1,
-                    sizeof(VkPerformanceCounterResultKHR) * cntrs,
-                    recordedCounters.data(),
-                    sizeof(VkPerformanceCounterResultKHR),
-                    0));
-            if (0) {
-                int i = 0;
-                for (auto c : recordedCounters) {
-                    printf("counter: %d, value: ", i);
-                    switch(perf.storages[i]) {
-                    case VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR:
-                        printf("%d\n", c.int32);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR:
-                        printf("%u\n", c.uint32);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR:
-                        printf("%ld\n", c.int64);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR:
-                        printf("%lu\n", c.uint64);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR:
-                        printf("%f\n", c.float32);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:
-                        printf("%g\n", c.float64);
-                        break;
-                    case VK_PERFORMANCE_COUNTER_STORAGE_MAX_ENUM_KHR:
-                        assert(0);
-                        break;
-                    }
-                    i++;
-                }
-            }
-
-            std::vector<uint64_t> recordedCountersPipeline(1);
-            VK_CHECK_RESULT(vkGetQueryPoolResults(device, perf.queryPoolPipeline, 0, 1,
-                    sizeof(uint64_t) * 1,
-                    recordedCountersPipeline.data(),
-                    sizeof(uint64_t),
-                    0));
-
             if (perf.show_csv) {
-                fprintf(statsFile, "%d,%d,%d,", WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y, WORKGROUP_SIZE_Z);
-                fprintf(statsFile, "%lu,", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
-                fprintf(statsFile, "%lu,", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                fprintf(statsFile, "%lu,", recordedCountersPipeline[0]);
-                fprintf(statsFile, "%lu,", recordedCountersPipeline[0] / recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                fprintf(statsFile, "%d\n", (int)(recordedCounters[perf.EUThreadOccupaccyIdx].float32));
+                // taking average is on the user's side
             } else {
-                printf("EU Thread Occupancy:   %f %%\n", recordedCounters[perf.EUThreadOccupaccyIdx].float32);
-                printf("CS Threads Dispatched: %lu\n", recordedCounters[perf.CSThreadsDispatchedIdx].uint64);
-                printf("GPU Time Elapsed:      %lu ns\n", recordedCounters[perf.GPUTimeElapsedIdx].uint64);
-                printf("CS Invocations:        %lu\n", recordedCountersPipeline[0]);
+                printf("Average GPU Time Elapsed:      %lu ns\n", overall_gpu_time / average);
+                printf("Average CPU Time Elapsed:      %lu ns\n", overall_cpu_time / average);
             }
-
-        } else {
-            runCommandBuffer(&commandBuffers[1], NULL);
         }
 
         // The former command rendered a mandelbrot set to a buffer.
@@ -998,7 +1044,7 @@ public:
         */
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
+//        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
         VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffers[0], &beginInfo)); // start recording commands.
 
         vkCmdResetQueryPool(commandBuffers[0], perf.queryPoolKHR, 0, 1);
@@ -1014,7 +1060,7 @@ public:
         */
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
+//        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // the buffer is only submitted and used once in this application.
         VK_CHECK_RESULT(vkBeginCommandBuffer(commandBuffers[1], &beginInfo)); // start recording commands.
 
         if (perf.enabled) {
